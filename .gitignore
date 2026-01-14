@@ -21,3 +21,21 @@ Thumbs.db
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Tauri
+src-tauri/target/
+target/
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# User data
+.local/share/com.jfnotes.app/
