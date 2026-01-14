@@ -476,20 +476,19 @@
   <aside bind:this={leftSidebarElement} class="border-r border-gray-200 bg-white flex flex-col {isDraggingLeft ? '' : 'transition-all'} {leftSidebarCollapsed ? 'w-0 -ml-px' : ''} overflow-hidden" style="width: {leftSidebarCollapsed ? '0px' : leftSidebarWidth + 'px'}">
     <div class="p-4 border-b border-gray-200">
       <div class="flex items-center justify-between">
-        <div>
-          <h1 class="text-2xl font-bold text-indigo-600">Sanity</h1>
-          <p class="text-sm text-gray-500 mt-1">Local-first notes</p>
-        </div>
         <div class="flex gap-2">
-          <button
-            class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            onclick={() => (leftSidebarCollapsed = !leftSidebarCollapsed)}
-            title={leftSidebarCollapsed ? "Expand" : "Collapse"}
-          >
-            <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={leftSidebarCollapsed ? "M9 5l7 7-7 7" : "M15 19l-7-7 7-7"} />
+          <button class="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600" onclick={handleCreateNote} title="New Note">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
             </svg>
           </button>
+          <button class="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600" onclick={handleCreateFolder} title="New Folder">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+            </svg>
+          </button>
+        </div>
+        <div class="flex gap-2">
           <button
             class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
             onclick={() => (showSettings = true)}
@@ -505,21 +504,18 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
         </button>
+        <button
+            class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            onclick={() => (leftSidebarCollapsed = !leftSidebarCollapsed)}
+            title={leftSidebarCollapsed ? "Expand" : "Collapse"}
+          >
+            <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={leftSidebarCollapsed ? "M9 5l7 7-7 7" : "M15 19l-7-7 7-7"} />
+            </svg>
+          </button>
       </div>
     </div>
-
-    <div class="p-4 flex gap-2">
-      <button class="btn btn-primary p-2 rounded-lg hover:opacity-80 transition-opacity" onclick={handleCreateNote} title="New Note">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-        </svg>
-      </button>
-      <button class="btn btn-secondary p-2 rounded-lg hover:opacity-80 transition-opacity" onclick={handleCreateFolder} title="New Folder">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
-        </svg>
-      </button>
-    </div>
+   </div>
 
     <!-- Folders Section -->
     <div class="flex-1 overflow-y-auto">
