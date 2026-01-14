@@ -1,0 +1,353 @@
+.tiptap-editor {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.tiptap-editor .ProseMirror {
+  height: 100%;
+  min-height: 100%;
+  outline: none;
+}
+
+.tiptap-editor h1 {
+  font-size: 2.25em;
+  font-weight: 800;
+  margin-top: 0.67em;
+  margin-bottom: 0.67em;
+  line-height: 1.2;
+}
+
+.tiptap-editor h2 {
+  font-size: 1.875em;
+  font-weight: 700;
+  margin-top: 0.83em;
+  margin-bottom: 0.83em;
+  line-height: 1.3;
+}
+
+.tiptap-editor h3 {
+  font-size: 1.5em;
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 1em;
+  line-height: 1.4;
+}
+
+.tiptap-editor p {
+  margin-top: 1em;
+  margin-bottom: 1em;
+  line-height: 1.75;
+}
+
+.tiptap-editor strong {
+  font-weight: 700;
+}
+
+.tiptap-editor em {
+  font-style: italic;
+}
+
+/* Math rendering styles */
+.math-inline-render {
+  display: inline;
+  padding: 0.05em 0.1em;
+  white-space: nowrap;
+}
+
+.math-block-render {
+  display: block;
+  padding: 1em;
+  margin: 1em 0;
+  background: #f9fafb;
+  border-left: 3px solid #6366f1;
+  border-radius: 0.25em;
+  overflow-x: auto;
+}
+
+/* Hide the original math text and take up no space */
+.math-hide {
+  display: inline-block;
+  width: 0;
+  overflow: hidden;
+  font-size: 0;
+  cursor: text;
+  position: relative;
+  font-family: monospace;
+  transition: color 0.1s ease, background-color 0.1s ease;
+  padding: 0;
+}
+
+/* Show text when cursor is inside the equation */
+.math-hide-active {
+  display: inline-block;
+  width: auto;
+  overflow: visible;
+  font-size: 0.9em;
+  color: #333;
+  background: rgba(200, 200, 200, 0.3);
+  outline: 1px solid #6366f1;
+  border-radius: 0.2em;
+  padding: 0.05em 0.1em;
+}
+
+/* Show the text when hovering over the math area */
+.math-block-render:hover ~ .math-hide,
+.math-inline-render:hover ~ .math-hide,
+.math-hide:hover {
+  display: inline-block;
+  width: auto;
+  overflow: visible;
+  font-size: 0.9em;
+  color: #888;
+  font-weight: 500;
+  background: rgba(200, 200, 200, 0.2);
+  border-radius: 0.2em;
+  padding: 0.05em 0.1em;
+}
+
+/* Show text when focused or cursor is in it */
+.math-hide:focus,
+.math-hide:focus-visible {
+  display: inline-block;
+  width: auto;
+  overflow: visible;
+  font-size: 0.9em;
+  color: #333;
+  background: rgba(200, 200, 200, 0.3);
+  outline: 1px solid #6366f1;
+  border-radius: 0.2em;
+  padding: 0.05em 0.1em;
+}
+
+/* Show text when selecting/focused */
+.math-hide::selection {
+  color: #000;
+  background: rgba(100, 150, 255, 0.3);
+}
+
+/* Inline code formatting */
+.tiptap-editor code {
+  background: #f1f5f9;
+  color: #c41e3a;
+  padding: 0.2em 0.5em;
+  border-radius: 0.35em;
+  font-family: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+  font-size: 0.85em;
+  font-weight: 500;
+  border: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.tiptap-editor .inline-code {
+  background: #f1f5f9;
+  color: #c41e3a;
+  padding: 0.2em 0.5em;
+  border-radius: 0.35em;
+  font-family: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+  font-size: 0.85em;
+  font-weight: 500;
+  border: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+/* Code block formatting */
+.tiptap-editor pre {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 1.25em;
+  border-radius: 0.5em;
+  overflow-x: auto;
+  font-family: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+  font-size: 0.9em;
+  line-height: 1.6;
+  margin: 1em 0;
+  border: 1px solid #1e293b;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.code-block-wrapper {
+  position: relative;
+}
+
+.code-copy-button {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  padding: 0.35rem;
+  font-size: 0;
+  line-height: 0;
+  border-radius: 0.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.8);
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  opacity: 0.7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.code-copy-button:hover {
+  background: rgba(30, 41, 59, 0.95);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #e2e8f0;
+  opacity: 1;
+}
+
+.code-copy-button:active {
+  transform: scale(0.95);
+}
+
+.tiptap-editor pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  border: none;
+  font-size: inherit;
+  font-weight: normal;
+  white-space: pre;
+}
+
+/* Code block scrollbar styling */
+.tiptap-editor pre::-webkit-scrollbar {
+  height: 8px;
+}
+
+.tiptap-editor pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tiptap-editor pre::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+}
+
+.tiptap-editor pre::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+.tiptap-editor blockquote {
+  border-left: 4px solid #6366f1;
+  padding-left: 1em;
+  margin: 1.5em 0;
+  color: #64748b;
+  font-style: italic;
+}
+
+.tiptap-editor ul,
+.tiptap-editor ol {
+  padding-left: 2em;
+  margin: 1em 0;
+  list-style-position: outside;
+}
+
+.tiptap-editor ul {
+  list-style-type: disc;
+}
+
+.tiptap-editor ol {
+  list-style-type: decimal;
+}
+
+.tiptap-editor li {
+  margin: 0.5em 0;
+  line-height: 1.75;
+}
+
+/* Task list (checkbox) styles */
+.tiptap-editor ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+
+.tiptap-editor ul[data-type="taskList"] li {
+  display: flex;
+  align-items: center;
+  gap: 0.75em;
+  margin: 0.5em 0;
+}
+
+.tiptap-editor ul[data-type="taskList"] li > label {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  user-select: none;
+  margin: 0;
+  padding: 0;
+  height: 1.75em;
+}
+
+.tiptap-editor ul[data-type="taskList"] li > div {
+  flex: 1;
+  line-height: 1.75;
+}
+
+.tiptap-editor ul[data-type="taskList"] input[type="checkbox"] {
+  cursor: pointer;
+  width: 1.2em;
+  height: 1.2em;
+  margin: 0;
+  accent-color: #6366f1;
+}
+
+.tiptap-editor ul[data-type="taskList"] li[data-checked="true"] > div {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.tiptap-editor hr {
+  border: none;
+  border-top: 2px solid #e5e7eb;
+  margin: 2em 0;
+}
+
+.tiptap-editor a {
+  color: #6366f1;
+  text-decoration: underline;
+}
+
+.tiptap-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #adb5bd;
+  pointer-events: none;
+  height: 0;
+}
+
+/* Math equation styling */
+.tiptap-editor .math-decoration-inline {
+  display: inline;
+  margin: 0 0.1em;
+}
+
+.tiptap-editor .math-inline {
+  display: inline-block;
+  padding: 0.1em 0.3em;
+  border-radius: 0.25em;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+}
+
+.tiptap-editor .math-inline .katex {
+  margin: 0;
+}
+
+.tiptap-editor .math-decoration {
+  display: block;
+  margin: 1.5em 0;
+}
+
+.tiptap-editor .math-block {
+  display: block;
+  padding: 1em;
+  background: #f9fafb;
+  border-left: 3px solid #6366f1;
+  border-radius: 0.25em;
+  overflow-x: auto;
+}
+
+.tiptap-editor .math-block .katex-display {
+  margin: 0;
+}
+

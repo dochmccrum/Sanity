@@ -1,13 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "JFNotes",
+  "productName": "Sanity",
   "version": "0.1.0",
   "identifier": "com.jfnotes.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
     "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist"
+    "frontendDist": "../build"
   },
   "app": {
     "withGlobalTauri": true,
@@ -20,7 +20,7 @@
     },
     "windows": [
       {
-        "title": "JFNotes",
+        "title": "Sanity",
         "width": 1200,
         "height": 800,
         "resizable": true,

@@ -16,6 +16,16 @@ pub struct Note {
     pub is_canvas: bool,
 }
 
+/// Represents a note summary (without content) for lists
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NoteSummary {
+    pub id: String,
+    pub title: String,
+    pub folder_id: Option<String>,
+    pub updated_at: String,
+    pub is_canvas: bool,
+}
+
 /// Represents a folder in the database
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Folder {
@@ -110,22 +120,21 @@ impl Database {
     }
 
     /// Get all notes from the database
-    pub fn get_all_notes(&self) -> SqliteResult<Vec<Note>> {
+    pub fn get_all_notes(&self) -> SqliteResult<Vec<NoteSummary>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, title, content, folder_id, updated_at, is_canvas 
+            "SELECT id, title, folder_id, updated_at, is_canvas 
              FROM notes 
              ORDER BY updated_at DESC"
         )?;
 
         let notes_iter = stmt.query_map([], |row| {
-            Ok(Note {
+            Ok(NoteSummary {
                 id: row.get(0)?,
                 title: row.get(1)?,
-                content: row.get(2)?,
-                folder_id: row.get(3)?,
-                updated_at: row.get(4)?,
-                is_canvas: row.get::<_, i32>(5)? != 0,
+                folder_id: row.get(2)?,
+                updated_at: row.get(3)?,
+                is_canvas: row.get::<_, i32>(4)? != 0,
             })
         })?;
 
@@ -180,6 +189,16 @@ impl Database {
         Ok(rows_affected > 0)
     }
 
+    /// Move a note to a different folder
+    pub fn move_note(&self, id: &str, folder_id: Option<&str>) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE notes SET folder_id = ?2, updated_at = datetime('now') WHERE id = ?1",
+            params![id, folder_id],
+        )?;
+        Ok(())
+    }
+
     /// Get a single note by ID
     pub fn get_note_by_id(&self, id: &str) -> SqliteResult<Option<Note>> {
         let conn = self.conn.lock().unwrap();
@@ -206,25 +225,24 @@ impl Database {
     }
 
     /// Get notes by folder ID
-    pub fn get_notes_by_folder(&self, folder_id: Option<&str>) -> SqliteResult<Vec<Note>> {
+    pub fn get_notes_by_folder(&self, folder_id: Option<&str>) -> SqliteResult<Vec<NoteSummary>> {
         let conn = self.conn.lock().unwrap();
         let mut notes = Vec::new();
 
-        let row_to_note = |row: &rusqlite::Row| -> SqliteResult<Note> {
-            Ok(Note {
+        let row_to_note = |row: &rusqlite::Row| -> SqliteResult<NoteSummary> {
+            Ok(NoteSummary {
                 id: row.get(0)?,
                 title: row.get(1)?,
-                content: row.get(2)?,
-                folder_id: row.get(3)?,
-                updated_at: row.get(4)?,
-                is_canvas: row.get::<_, i32>(5)? != 0,
+                folder_id: row.get(2)?,
+                updated_at: row.get(3)?,
+                is_canvas: row.get::<_, i32>(4)? != 0,
             })
         };
 
         match folder_id {
             Some(fid) => {
                 let mut stmt = conn.prepare(
-                    "SELECT id, title, content, folder_id, updated_at, is_canvas 
+                    "SELECT id, title, folder_id, updated_at, is_canvas 
                      FROM notes 
                      WHERE folder_id = ?1
                      ORDER BY updated_at DESC"
@@ -236,7 +254,7 @@ impl Database {
             }
             None => {
                 let mut stmt = conn.prepare(
-                    "SELECT id, title, content, folder_id, updated_at, is_canvas 
+                    "SELECT id, title, folder_id, updated_at, is_canvas 
                      FROM notes 
                      WHERE folder_id IS NULL
                      ORDER BY updated_at DESC"

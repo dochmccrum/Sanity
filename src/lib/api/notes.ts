@@ -18,6 +18,15 @@ export interface Note {
   is_canvas: boolean;
 }
 
+export interface NoteSummary {
+  id: string;
+  title: string;
+  folder_id: string | null;
+  updated_at: string;
+  is_canvas: boolean;
+  content?: string; // Optional because UI might expect it, but we can make it optional
+}
+
 export interface NoteInput {
   id?: string;
   title: string;
@@ -43,8 +52,8 @@ export interface CommandError {
 /**
  * Get all notes from the database
  */
-export async function getAllNotes(): Promise<Note[]> {
-  return invoke<Note[]>('get_all_notes');
+export async function getAllNotes(): Promise<NoteSummary[]> {
+  return invoke<NoteSummary[]>('get_all_notes');
 }
 
 /**
@@ -57,8 +66,8 @@ export async function getNote(id: string): Promise<Note | null> {
 /**
  * Get notes by folder ID (pass undefined/null for root-level notes)
  */
-export async function getNotesByFolder(folderId?: string | null): Promise<Note[]> {
-  return invoke<Note[]>('get_notes_by_folder', { folderId });
+export async function getNotesByFolder(folderId?: string | null): Promise<NoteSummary[]> {
+  return invoke<NoteSummary[]>('get_notes_by_folder', { folderId });
 }
 
 /**
@@ -76,6 +85,13 @@ export async function saveNote(note: NoteInput): Promise<Note> {
  */
 export async function deleteNote(id: string): Promise<boolean> {
   return invoke<boolean>('delete_note', { id });
+}
+
+/**
+ * Move a note to a different folder
+ */
+export async function moveNote(id: string, folderId: string | null): Promise<void> {
+  return invoke('move_note', { id, folderId });
 }
 
 // ============================================================================

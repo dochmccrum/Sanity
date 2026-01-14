@@ -1,4 +1,4 @@
-use crate::database::{assets, Database, Note, NoteInput, Folder, FolderInput};
+use crate::database::{assets, Database, Note, NoteSummary, NoteInput, Folder, FolderInput};
 use tauri::{Manager, State};
 
 /// Error type for command responses
@@ -27,7 +27,7 @@ impl From<String> for CommandError {
 
 /// Get all notes from the database
 #[tauri::command]
-pub async fn get_all_notes(db: State<'_, Database>) -> Result<Vec<Note>, CommandError> {
+pub async fn get_all_notes(db: State<'_, Database>) -> Result<Vec<NoteSummary>, CommandError> {
     db.get_all_notes().map_err(|e| e.into())
 }
 
@@ -42,7 +42,7 @@ pub async fn get_note(db: State<'_, Database>, id: String) -> Result<Option<Note
 pub async fn get_notes_by_folder(
     db: State<'_, Database>,
     folder_id: Option<String>,
-) -> Result<Vec<Note>, CommandError> {
+) -> Result<Vec<NoteSummary>, CommandError> {
     db.get_notes_by_folder(folder_id.as_deref())
         .map_err(|e| e.into())
 }
@@ -57,6 +57,16 @@ pub async fn save_note(db: State<'_, Database>, note: NoteInput) -> Result<Note,
 #[tauri::command]
 pub async fn delete_note(db: State<'_, Database>, id: String) -> Result<bool, CommandError> {
     db.delete_note(&id).map_err(|e| e.into())
+}
+
+/// Move a note to a folder
+#[tauri::command]
+pub async fn move_note(
+    db: State<'_, Database>, 
+    id: String, 
+    folder_id: Option<String>
+) -> Result<(), CommandError> {
+    db.move_note(&id, folder_id.as_deref()).map_err(|e| e.into())
 }
 
 // ============================================================================

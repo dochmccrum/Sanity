@@ -3,7 +3,7 @@ import * as foldersApi from '$lib/api/folders';
 
 export function createFoldersStore() {
   let folders = $state<Folder[]>([]);
-  let selectedFolder = $state<Folder | null>(null);
+  let selectedFolder = $state<Folder | null | 'uncategorised'>(null);
   let loading = $state(false);
   let error = $state<string | null>(null);
 
@@ -68,7 +68,7 @@ export function createFoldersStore() {
     }
   }
 
-  function selectFolder(folder: Folder | null) {
+  function selectFolder(folder: Folder | null | 'uncategorised') {
     selectedFolder = folder;
   }
 
@@ -79,6 +79,7 @@ export function createFoldersStore() {
   return {
     get folders() { return folders; },
     get selectedFolder() { return selectedFolder; },
+    set selectedFolder(value: Folder | null | 'uncategorised') { selectedFolder = value; },
     get loading() { return loading; },
     get error() { return error; },
     loadFolders,
