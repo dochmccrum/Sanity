@@ -12,9 +12,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    # Expose for local dev only; in production you can remove this.
-    ports:
-      - "5432:5432"
 
   server:
     build:
@@ -28,8 +25,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
 
 volumes:
   db_data:

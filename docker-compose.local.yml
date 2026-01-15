@@ -1,0 +1,8 @@
+services:
+  db:
+    ports:
+      - "5432:5432"
+
+  server:
+    ports:
+      - "${JFNOTES_HOST_PORT:-8080}:8080"
