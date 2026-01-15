@@ -1,6 +1,6 @@
-# JFNotes
+# Sanite
 
-A modern notes application with desktop and web support. Write, organize, and sync your notes across devices with a beautiful, responsive interface.
+Normal notes for normal people. Folders, markdown, flawless cross-platform and sync support and very easy self-hosting.
 
 ## Features
 
