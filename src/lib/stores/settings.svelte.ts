@@ -4,6 +4,7 @@ export function createSettingsStore() {
   let enableAutoComplete = $state(true);
   let showAllNotesFolder = $state(true);
   let showUncategorisedFolder = $state(true);
+  let showNotePreviews = $state(true);
 
   return {
     get autoFocusTitleOnNewNote() {
@@ -51,6 +52,15 @@ export function createSettingsStore() {
         localStorage.setItem('jfnotes_show_uncategorised', JSON.stringify(value));
       }
     },
+    get showNotePreviews() {
+      return showNotePreviews;
+    },
+    set showNotePreviews(value: boolean) {
+      showNotePreviews = value;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('jfnotes_show_previews', JSON.stringify(value));
+      }
+    },
     loadSettings() {
       if (typeof window !== 'undefined') {
         const savedAutoFocus = localStorage.getItem('jfnotes_auto_focus');
@@ -72,6 +82,10 @@ export function createSettingsStore() {
         const savedShowUncategorised = localStorage.getItem('jfnotes_show_uncategorised');
         if (savedShowUncategorised !== null) {
           showUncategorisedFolder = JSON.parse(savedShowUncategorised);
+        }
+        const savedShowPreviews = localStorage.getItem('jfnotes_show_previews');
+        if (savedShowPreviews !== null) {
+          showNotePreviews = JSON.parse(savedShowPreviews);
         }
       }
     }

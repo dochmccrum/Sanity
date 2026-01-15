@@ -28,6 +28,8 @@
       .replace(/```(.*?)```/gis, '<pre><code>$1</code></pre>')
       // Inline code
       .replace(/`(.*?)`/gim, '<code>$1</code>')
+      // Images
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/gim, '<img src="$2" alt="$1" class="markdown-image">')
       // Links
       .replace(/\[([^\]]+)\]\(([^)]+)\)/gim, '<a href="$2" target="_blank" rel="noopener">$1</a>')
       // Line breaks
@@ -132,6 +134,24 @@
 
   .preview-content :global(a:hover) {
     color: #6bb3ff;
+  }
+
+  /* Image styles */
+  .preview-content :global(.markdown-image) {
+    max-width: 800px;
+    max-height: 600px;
+    width: 100%;
+    height: auto;
+    display: block;
+    margin: 1em auto;
+    border-radius: 0.5em;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  @media (max-width: 900px) {
+    .preview-content :global(.markdown-image) {
+      max-width: 100%;
+    }
   }
 
   /* KaTeX styles */

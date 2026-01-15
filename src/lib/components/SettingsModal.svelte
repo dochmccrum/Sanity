@@ -18,8 +18,8 @@
 
       <div class="p-6 space-y-6">
         <!-- Auto-focus Title Setting -->
-        <div class="flex items-center justify-between">
-          <div>
+        <div class="flex items-start gap-4">
+          <div class="flex-1">
             <label for="auto-focus" class="block font-medium text-gray-900">
               Auto-focus Title
             </label>
@@ -27,9 +27,9 @@
               Automatically focus the title field when creating a new note
             </p>
           </div>
-          <button
-            id="auto-focus"
-            class="relative inline-flex h-8 w-14 items-center rounded-full transition-colors {settings.autoFocusTitleOnNewNote
+            <button
+              id="auto-focus"
+              class="relative flex h-8 w-14 min-w-14 flex-none items-center rounded-full transition-colors p-0.5 {settings.autoFocusTitleOnNewNote
               ? 'bg-indigo-600'
               : 'bg-gray-300'}"
             onclick={() => {
@@ -38,16 +38,16 @@
             aria-label="Toggle auto-focus title"
           >
             <span
-              class="inline-block h-6 w-6 transform rounded-full bg-white transition-transform {settings.autoFocusTitleOnNewNote
+              class="h-6 w-6 rounded-full bg-white transition-transform duration-200 ease-in-out {settings.autoFocusTitleOnNewNote
                 ? 'translate-x-7'
-                : 'translate-x-1'}"
+                : 'translate-x-0'}"
             ></span>
           </button>
         </div>
 
         <!-- Confirm Before Delete Setting -->
-        <div class="flex items-center justify-between">
-          <div>
+        <div class="flex items-start gap-4">
+          <div class="flex-1">
             <label for="confirm-delete" class="block font-medium text-gray-900">
               Confirm Before Delete
             </label>
@@ -55,9 +55,9 @@
               Show confirmation dialog before deleting notes
             </p>
           </div>
-          <button
-            id="confirm-delete"
-            class="relative inline-flex h-8 w-14 items-center rounded-full transition-colors {settings.confirmBeforeDelete
+            <button
+              id="confirm-delete"
+              class="relative flex h-8 w-14 min-w-14 flex-none items-center rounded-full transition-colors p-0.5 {settings.confirmBeforeDelete
               ? 'bg-indigo-600'
               : 'bg-gray-300'}"
             onclick={() => {
@@ -66,16 +66,16 @@
             aria-label="Toggle confirm before delete"
           >
             <span
-              class="inline-block h-6 w-6 transform rounded-full bg-white transition-transform {settings.confirmBeforeDelete
+              class="h-6 w-6 rounded-full bg-white transition-transform duration-200 ease-in-out {settings.confirmBeforeDelete
                 ? 'translate-x-7'
-                : 'translate-x-1'}"
+                : 'translate-x-0'}"
             ></span>
           </button>
         </div>
 
         <!-- Auto-Complete Setting -->
-        <div class="flex items-center justify-between">
-          <div>
+        <div class="flex items-start gap-4">
+          <div class="flex-1">
             <label for="auto-complete" class="block font-medium text-gray-900">
               Auto-Complete Characters
             </label>
@@ -83,9 +83,9 @@
               Automatically close brackets, quotes, and markdown formatting
             </p>
           </div>
-          <button
-            id="auto-complete"
-            class="relative inline-flex h-8 w-14 items-center rounded-full transition-colors {settings.enableAutoComplete
+            <button
+              id="auto-complete"
+              class="relative flex h-8 w-14 min-w-14 flex-none items-center rounded-full transition-colors p-0.5 {settings.enableAutoComplete
               ? 'bg-indigo-600'
               : 'bg-gray-300'}"
             onclick={() => {
@@ -94,16 +94,16 @@
             aria-label="Toggle auto-complete characters"
           >
             <span
-              class="inline-block h-6 w-6 transform rounded-full bg-white transition-transform {settings.enableAutoComplete
+              class="h-6 w-6 rounded-full bg-white transition-transform duration-200 ease-in-out {settings.enableAutoComplete
                 ? 'translate-x-7'
-                : 'translate-x-1'}"
+                : 'translate-x-0'}"
             ></span>
           </button>
         </div>
 
         <!-- Show All Notes Folder Setting -->
-        <div class="flex items-center justify-between">
-          <div>
+        <div class="flex items-start gap-4">
+          <div class="flex-1">
             <label for="show-all-notes" class="block font-medium text-gray-900">
               Show "All Notes" Folder
             </label>
@@ -111,9 +111,9 @@
               Display a special folder showing all notes
             </p>
           </div>
-          <button
-            id="show-all-notes"
-            class="relative inline-flex h-8 w-14 items-center rounded-full transition-colors {settings.showAllNotesFolder
+            <button
+              id="show-all-notes"
+              class="relative flex h-8 w-14 min-w-14 flex-none items-center rounded-full transition-colors p-0.5 {settings.showAllNotesFolder
               ? 'bg-indigo-600'
               : 'bg-gray-300'}"
             onclick={() => {
@@ -122,16 +122,16 @@
             aria-label="Toggle show all notes folder"
           >
             <span
-              class="inline-block h-6 w-6 transform rounded-full bg-white transition-transform {settings.showAllNotesFolder
+              class="h-6 w-6 rounded-full bg-white transition-transform duration-200 ease-in-out {settings.showAllNotesFolder
                 ? 'translate-x-7'
-                : 'translate-x-1'}"
+                : 'translate-x-0'}"
             ></span>
           </button>
         </div>
 
         <!-- Show Uncategorised Folder Setting -->
-        <div class="flex items-center justify-between">
-          <div>
+        <div class="flex items-start gap-4">
+          <div class="flex-1">
             <label for="show-uncategorised" class="block font-medium text-gray-900">
               Show "Uncategorised" Folder
             </label>
@@ -139,9 +139,9 @@
               Display a special folder showing notes without a folder
             </p>
           </div>
-          <button
-            id="show-uncategorised"
-            class="relative inline-flex h-8 w-14 items-center rounded-full transition-colors {settings.showUncategorisedFolder
+            <button
+              id="show-uncategorised"
+              class="relative flex h-8 w-14 min-w-14 flex-none items-center rounded-full transition-colors p-0.5 {settings.showUncategorisedFolder
               ? 'bg-indigo-600'
               : 'bg-gray-300'}"
             onclick={() => {
@@ -150,9 +150,37 @@
             aria-label="Toggle show uncategorised folder"
           >
             <span
-              class="inline-block h-6 w-6 transform rounded-full bg-white transition-transform {settings.showUncategorisedFolder
+              class="h-6 w-6 rounded-full bg-white transition-transform duration-200 ease-in-out {settings.showUncategorisedFolder
                 ? 'translate-x-7'
-                : 'translate-x-1'}"
+                : 'translate-x-0'}"
+            ></span>
+          </button>
+        </div>
+
+        <!-- Show Note Previews Setting -->
+        <div class="flex items-start gap-4">
+          <div class="flex-1">
+            <label for="show-previews" class="block font-medium text-gray-900">
+              Show Note Previews
+            </label>
+            <p class="text-sm text-gray-500 mt-1">
+              Display preview text on note cards in the list
+            </p>
+          </div>
+            <button
+              id="show-previews"
+              class="relative flex h-8 w-14 min-w-14 flex-none items-center rounded-full transition-colors p-0.5 {settings.showNotePreviews
+              ? 'bg-indigo-600'
+              : 'bg-gray-300'}"
+            onclick={() => {
+              settings.showNotePreviews = !settings.showNotePreviews;
+            }}
+            aria-label="Toggle show note previews"
+          >
+            <span
+              class="h-6 w-6 rounded-full bg-white transition-transform duration-200 ease-in-out {settings.showNotePreviews
+                ? 'translate-x-7'
+                : 'translate-x-0'}"
             ></span>
           </button>
         </div>

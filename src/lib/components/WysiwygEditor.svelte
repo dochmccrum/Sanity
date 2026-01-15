@@ -10,10 +10,12 @@
   import Typography from '@tiptap/extension-typography';
   import TaskList from '@tiptap/extension-task-list';
   import TaskItem from '@tiptap/extension-task-item';
+  import Image from '@tiptap/extension-image';
   import { Markdown } from '@tiptap/markdown';
   import katex from 'katex';
   import 'katex/dist/katex.min.css';
   import './WysiwygEditor.css';
+  import { uploadImage, uploadImageFromClipboard } from '$lib/utils/imageUpload';
 
   let { value = '', onchange, noteId, enableAutoComplete = true }: { value?: string; onchange?: (val: string) => void; noteId?: string; enableAutoComplete?: boolean } = $props();
 
@@ -25,6 +27,18 @@
   export function focus() {
     if (editor) {
       editor.commands.focus();
+    }
+  }
+
+  export function insertImage(src: string) {
+    if (editor) {
+      editor.chain()
+        .focus()
+        .insertContent({
+          type: 'image',
+          attrs: { src }
+        })
+        .run();
     }
   }
 
@@ -214,12 +228,19 @@
               class: 'inline-code'
             }
           }),
+          Image.configure({
+            inline: true,
+            allowBase64: true,
+            HTMLAttributes: {
+              class: 'editor-image'
+            }
+          }),
           TaskList,
           TaskItem.configure({
             nested: true,
           }),
           Placeholder.configure({
-            placeholder: 'Start typing... Use ** for bold, _ for italic, ` for code, $x+y$ for equations...'
+            placeholder: 'Start typing... Use ** for bold, _ for italic, ` for code, $x+y$ for equations. Drag or paste images...'
           }),
           Typography,
           Markdown,
@@ -229,6 +250,92 @@
         editorProps: {
           attributes: {
             class: 'prose prose-sm sm:prose lg:prose-lg xl:prose-xl focus:outline-none max-w-none p-6'
+          },
+          handleDrop: (view, event, slice, moved) => {
+            // Handle image drops - don't process if content is being moved within editor
+            if (moved) return false;
+            
+            const files = event.dataTransfer?.files;
+            console.log('Drop event:', { files: files?.length, types: event.dataTransfer?.types });
+            
+            if (!files || files.length === 0) return false;
+            
+            const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
+            console.log('Image files found:', imageFiles.length);
+            
+            if (imageFiles.length === 0) return false;
+            
+            // Prevent default to handle the drop ourselves
+            event.preventDefault();
+            event.stopPropagation();
+            
+            // Get drop position
+            const coordinates = view.posAtCoords({
+              left: event.clientX,
+              top: event.clientY
+            });
+            
+            console.log('Uploading images...');
+            
+            // Upload and insert each image sequentially
+            (async () => {
+              for (const file of imageFiles) {
+                try {
+                  console.log('Uploading:', file.name);
+                  const uri = await uploadImage(file);
+                  console.log('Upload successful, URI:', uri);
+                  
+                  if (editor && coordinates) {
+                    editor.chain()
+                      .focus()
+                      .insertContentAt(coordinates.pos, {
+                        type: 'image',
+                        attrs: { src: uri }
+                      })
+                      .run();
+                  }
+                } catch (error) {
+                  console.error('Failed to upload dropped image:', error);
+                }
+              }
+            })();
+            
+            return true;
+          },
+          handlePaste: (view, event) => {
+            // Handle pasted images
+            const files = event.clipboardData?.files;
+            if (!files || files.length === 0) return false;
+            
+            const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
+            if (imageFiles.length === 0) return false;
+            
+            event.preventDefault();
+            event.stopPropagation();
+            
+            // Upload and insert each image sequentially
+            (async () => {
+              for (const file of imageFiles) {
+                try {
+                  const blob = file as Blob;
+                  const uri = await uploadImageFromClipboard(blob);
+                  
+                  if (editor) {
+                    editor.chain()
+                      .focus()
+                      .insertContent({
+                        type: 'image',
+                        attrs: { src: uri }
+                      })
+                      .run();
+                  }
+                } catch (error) {
+                  console.error('Failed to upload pasted image:', error);
+                }
+              }
+            })();
+            
+            return true;
           },
           handleKeyDown: (view, event) => {
             // Handle Backspace at the beginning of an empty list item to exit the list

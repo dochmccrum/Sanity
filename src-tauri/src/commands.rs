@@ -148,6 +148,34 @@ pub async fn save_image_bytes(
         .map_err(|e| e.into())
 }
 
+/// Save an image asset from a file path
+#[tauri::command]
+pub async fn save_image_from_path(
+    app_handle: tauri::AppHandle,
+    path: String,
+) -> Result<assets::AssetResult, CommandError> {
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| CommandError {
+            message: format!("Failed to get app data directory: {}", e),
+        })?;
+
+    let data = std::fs::read(&path)
+        .map_err(|e| CommandError {
+            message: format!("Failed to read file: {}", e),
+        })?;
+
+    let file_extension = std::path::Path::new(&path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("png")
+        .to_string();
+
+    assets::save_image_bytes(&app_data_dir, &data, &file_extension)
+        .map_err(|e| e.into())
+}
+
 /// Delete an asset by ID
 #[tauri::command]
 pub async fn delete_asset(

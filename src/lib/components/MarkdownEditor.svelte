@@ -4,6 +4,7 @@
   import { EditorState } from '@codemirror/state';
   import { markdown } from '@codemirror/lang-markdown';
   import { oneDark } from '@codemirror/theme-one-dark';
+  import { uploadImage, uploadImageFromClipboard } from '$lib/utils/imageUpload';
 
   interface Props {
     value: string;
@@ -34,6 +35,71 @@
         }),
         EditorView.editable.of(!readonly),
         EditorState.readOnly.of(readonly),
+        // Image drop/paste support
+        EditorView.domEventHandlers({
+          drop: (event, view) => {
+            if (readonly) return false;
+            
+            const files = event.dataTransfer?.files;
+            if (!files || files.length === 0) return false;
+            
+            const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
+            if (imageFiles.length === 0) return false;
+            
+            event.preventDefault();
+            
+            // Get cursor position from coordinates
+            const coords = view.posAtCoords({ x: event.clientX, y: event.clientY });
+            const pos = coords ?? view.state.selection.main.head;
+            
+            // Upload each image and insert markdown asynchronously
+            imageFiles.forEach(async (file) => {
+              try {
+                const uri = await uploadImage(file);
+                const markdown = `![${file.name}](${uri})\n`;
+                
+                view.dispatch({
+                  changes: { from: pos, insert: markdown }
+                });
+              } catch (error) {
+                console.error('Failed to upload dropped image:', error);
+              }
+            });
+            
+            return true;
+          },
+          paste: (event, view) => {
+            if (readonly) return false;
+            
+            const files = event.clipboardData?.files;
+            if (!files || files.length === 0) return false;
+            
+            const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
+            if (imageFiles.length === 0) return false;
+            
+            event.preventDefault();
+            
+            // Get cursor position
+            const pos = view.state.selection.main.head;
+            
+            // Upload each image and insert markdown asynchronously
+            imageFiles.forEach(async (file) => {
+              try {
+                const blob = file as Blob;
+                const uri = await uploadImageFromClipboard(blob);
+                const markdown = `![pasted-image](${uri})\n`;
+                
+                view.dispatch({
+                  changes: { from: pos, insert: markdown }
+                });
+              } catch (error) {
+                console.error('Failed to upload pasted image:', error);
+              }
+            });
+            
+            return true;
+          }
+        })
       ],
     });
 

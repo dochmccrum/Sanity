@@ -47,6 +47,32 @@
   font-style: italic;
 }
 
+/* Image styles */
+.tiptap-editor .editor-image {
+  max-width: 800px;
+  max-height: 600px;
+  width: 100%;
+  height: auto;
+  display: block;
+  margin: 1em auto;
+  border-radius: 0.5em;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.tiptap-editor .editor-image:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Responsive image sizing */
+@media (max-width: 900px) {
+  .tiptap-editor .editor-image {
+    max-width: 100%;
+  }
+}
+
 /* Math rendering styles */
 .math-inline-render {
   display: inline;

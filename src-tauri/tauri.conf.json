@@ -16,7 +16,30 @@
         "enable": true,
         "scope": ["$APPDATA/.assets/**", "$APPDATA/**"]
       },
-      "csp": "default-src 'self'; img-src 'self' asset: https: data:; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; img-src 'self' asset: https: data:; style-src 'self' 'unsafe-inline'",
+      "capabilities": [
+        {
+          "identifier": "main-capability",
+          "description": "Capability for the main window",
+          "windows": ["main"],
+          "permissions": [
+            "core:window:allow-close",
+            "core:window:allow-minimize",
+            "core:window:allow-maximize",
+            "core:window:allow-unmaximize",
+            "core:window:allow-toggle-maximize",
+            "core:window:allow-is-maximized",
+            "core:window:allow-show",
+            "core:window:allow-hide",
+            "core:window:allow-set-title",
+            "core:window:allow-start-dragging",
+            "core:event:allow-listen",
+            "core:event:allow-emit",
+            "fs:allow-read-file",
+            "fs:default"
+          ]
+        }
+      ]
     },
     "windows": [
       {
@@ -27,7 +50,8 @@
         "fullscreen": false,
         "minWidth": 400,
         "minHeight": 300,
-        "decorations": false
+        "decorations": false,
+        "label": "main"
       }
     ]
   },

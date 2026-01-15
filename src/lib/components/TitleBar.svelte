@@ -4,42 +4,64 @@
   
   // We need to keep track of maximized state to toggle the icon
   let isMaximized = $state(false);
-  
-  const appWindow = getCurrentWindow();
+  let appWindow: any = null;
+  let unlistenFn: any = null;
 
   async function checkMaximized() {
+    if (!appWindow) return;
     isMaximized = await appWindow.isMaximized();
   }
 
   onMount(() => {
-    // Check initial state
-    checkMaximized();
+    const initWindow = async () => {
+      try {
+        appWindow = getCurrentWindow();
+        console.log('Window initialized:', appWindow);
+        
+        // Check initial state
+        await checkMaximized();
+        
+        // Listen for resize events to update the icon if the user snaps the window
+        unlistenFn = await appWindow.listen('tauri://resize', checkMaximized);
+      } catch (error) {
+        console.error('Failed to initialize window controls:', error);
+      }
+    };
     
-    // Listen for resize events to update the icon if the user snaps the window
-    const unlisten = appWindow.listen('tauri://resize', checkMaximized);
+    initWindow();
     
     return () => {
-      unlisten.then(f => f());
+      if (unlistenFn) {
+        unlistenFn();
+      }
     };
   });
 
   function minimize() {
-    appWindow.minimize();
+    console.log('Minimize clicked', appWindow);
+    if (appWindow) {
+      appWindow.minimize();
+    }
   }
 
   function maximize() {
-    appWindow.toggleMaximize();
-    // State will be updated by the listener, but we can do it optimistically too
-    isMaximized = !isMaximized;
+    console.log('Maximize clicked', appWindow);
+    if (appWindow) {
+      appWindow.toggleMaximize();
+      checkMaximized();
+    }
   }
 
   function close() {
-    appWindow.close();
+    console.log('Close clicked', appWindow);
+    if (appWindow) {
+      appWindow.close();
+    }
   }
 </script>
 
-<div data-tauri-drag-region class="h-8 bg-gray-100 border-b border-gray-200 flex justify-between items-center select-none w-full shrink-0 z-50">
-  <div class="flex items-center pl-4 gap-2 pointer-events-none">
+<div class="h-8 bg-gray-100 border-b border-gray-200 flex justify-between items-center select-none w-full shrink-0 z-50">
+  <div data-tauri-drag-region class="flex items-center pl-4 gap-2 flex-1 h-full">
      <span class="text-xs font-medium text-gray-500">Sanity</span>
   </div>
   

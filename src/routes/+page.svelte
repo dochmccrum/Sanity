@@ -2,10 +2,14 @@
   import { onMount } from 'svelte';
   import { fade, scale } from 'svelte/transition';
   import { browser } from '$app/environment';
+  import { getCurrentWebview } from '@tauri-apps/api/webview';
+  import { invoke } from '@tauri-apps/api/core';
+  import { listen } from '@tauri-apps/api/event';
   import type { Note } from '$lib/api/notes';
   import type { Folder } from '$lib/api/folders';
   import WysiwygEditor from '$lib/components/WysiwygEditor.svelte';
   import SettingsModal from '$lib/components/SettingsModal.svelte';
+  import { uploadImage } from '$lib/utils/imageUpload';
 
   let notesStore: any = $state(null);
   let foldersStore: any = $state(null);
@@ -41,6 +45,7 @@
   const smoothing = 0.3; // More smoothing for fluid feel
   let draggedNote: Note | null = $state(null);
   let dragOverFolder: string | null = $state(null);
+  let expandedNotePreview = $state<string | null>(null);
 
   // Helper function to strip HTML tags for preview
   function stripHtml(html: string): string {
@@ -142,14 +147,68 @@
     targetLeftWidth = null;
     targetRightWidth = null;
   }
-  onMount(async () => {
+  onMount(() => {
     // Setup event listeners for resize functionality
     if (typeof window !== 'undefined') {
       document.addEventListener('mousemove', handleResizeMouseMove);
       document.addEventListener('mouseup', handleResizeMouseUp);
     }
+
+    // Document-level drop handling removed to avoid duplicate inserts with Tauri drag/drop.
     
-    if (browser) {
+    // Listen for Tauri drag/drop events
+    let unlistenFileDrop: (() => void) | null = null;
+    let unlistenBackendDrop: (() => void) | null = null;
+    const setupDragDrop = async () => {
+      if (!browser) return;
+      try {
+        const webview = getCurrentWebview();
+        unlistenFileDrop = await webview.onDragDropEvent(async (event) => {
+          const payload = event.payload;
+          if (payload.type !== 'drop') return;
+
+          const paths = payload.paths ?? [];
+          console.log('Tauri file drop event:', paths);
+
+          if (!notesStore?.selectedNote || !editorElement) {
+            console.log('No note selected or editor not ready');
+            return;
+          }
+
+          // Filter for image files
+          const imageFiles = paths.filter((path: string) => 
+            /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(path)
+          );
+
+          if (imageFiles.length === 0) {
+            console.log('No image files in drop');
+            return;
+          }
+
+          console.log('Processing', imageFiles.length, 'image files');
+
+          for (const filePath of imageFiles) {
+            try {
+              const result: any = await invoke('save_image_from_path', { path: filePath });
+              console.log('Upload successful:', result);
+
+              if (editorElement && result.uri) {
+                editorElement.insertImage?.(result.uri);
+              }
+            } catch (error) {
+              console.error('Failed to process dropped file:', filePath, error);
+            }
+          }
+        });
+
+        unlistenBackendDrop = null;
+      } catch (error) {
+        console.error('Failed to setup drag/drop listener:', error);
+      }
+    };
+
+    const initializeStores = async () => {
+      if (!browser) return;
       try {
         console.log('Initializing stores...');
         
@@ -191,10 +250,19 @@
         }
         initialized = true;
       }
-    }
+    };
+
+    void setupDragDrop();
+    void initializeStores();
     
     // Return cleanup function
     return () => {
+      if (unlistenFileDrop) {
+        unlistenFileDrop();
+      }
+      if (unlistenBackendDrop) {
+        unlistenBackendDrop();
+      }
       if (typeof window !== 'undefined') {
         document.removeEventListener('mousemove', handleResizeMouseMove);
         document.removeEventListener('mouseup', handleResizeMouseUp);
@@ -417,6 +485,9 @@
   }
 
   function handleFolderDragOver(event: DragEvent, folderId: string | null) {
+    // Only handle if we're dragging a note, not an external file
+    if (!draggedNote) return;
+    
     event.preventDefault();
     if (event.dataTransfer) {
       event.dataTransfer.dropEffect = 'move';
@@ -434,10 +505,13 @@
   }
 
   async function handleFolderDrop(event: DragEvent, folderId: string | null) {
+    // Only handle if we're dragging a note, not an external file
+    if (!draggedNote) return;
+    
     event.preventDefault();
     dragOverFolder = null;
     
-    if (!draggedNote || !notesStore) return;
+    if (!notesStore) return;
     
     // Update the note's folder
     await notesStore.moveNote(draggedNote.id, folderId);
@@ -715,9 +789,31 @@
                 <h3 class="font-medium text-gray-900 truncate">
                   {note.title || 'Untitled Note'}
                 </h3>
-                <p class="text-sm text-gray-500 mt-1 line-clamp-2">
-                  {note.content ? stripHtml(note.content).substring(0, 100) : 'Open to view content'}
-                </p>
+                {#if settingsStore?.showNotePreviews}
+                  {#if expandedNotePreview === note.id}
+                    <div class="text-sm text-gray-700 mt-2 p-2 bg-gray-50 rounded border border-gray-200 max-h-32 overflow-y-auto break-words whitespace-normal">
+                      {note.content ? stripHtml(note.content) : 'No content'}
+                    </div>
+                  {:else}
+                    <p class="text-sm text-gray-500 mt-1 line-clamp-2 cursor-pointer hover:text-gray-600" onclick={(e) => {
+                      e.stopPropagation();
+                      expandedNotePreview = note.id;
+                    }}>
+                      {note.content ? stripHtml(note.content).substring(0, 100) : 'Open to view content'}
+                    </p>
+                  {/if}
+                  {#if expandedNotePreview === note.id && note.content}
+                    <button 
+                      class="text-xs text-gray-400 hover:text-gray-600 mt-2"
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        expandedNotePreview = null;
+                      }}
+                    >
+                      Show less
+                    </button>
+                  {/if}
+                {/if}
                 <div class="flex items-center justify-between mt-2">
                   <span class="text-xs text-gray-400">
                     {new Date(note.updated_at).toLocaleDateString()}
@@ -784,7 +880,16 @@
   {/if}
 
   <!-- Editor Area -->
-  <main class="flex-1 flex flex-col bg-white">
+  <main 
+    class="flex-1 flex flex-col bg-white"
+    ondragover={(e) => {
+      // Allow file drops in editor area
+      if (e.dataTransfer?.types.includes('Files')) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }
+    }}
+  >
     {#if notesStore.selectedNote}
       <div class="border-b border-gray-200 p-4">
         <input

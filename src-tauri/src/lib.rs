@@ -2,13 +2,14 @@ mod commands;
 mod database;
 
 use database::Database;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// Initialize and run the Tauri application
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             // Get the app data directory for database storage
             let app_data_dir = app
@@ -32,6 +33,17 @@ pub fn run() {
 
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::DragDrop(drag_event) = event {
+                if let tauri::DragDropEvent::Drop { paths, .. } = drag_event {
+                    let paths: Vec<String> = paths
+                        .iter()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .collect();
+                    let _ = window.emit("app://file-drop", paths);
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             // Note commands
             commands::get_all_notes,
@@ -49,6 +61,7 @@ pub fn run() {
             // Asset commands
             commands::save_image_asset,
             commands::save_image_bytes,
+            commands::save_image_from_path,
             commands::delete_asset,
             commands::list_assets,
             commands::get_assets_path,
