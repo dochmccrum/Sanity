@@ -1,38 +1,110 @@
-# sv
+# JFNotes
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+A modern notes application with desktop and web support. Write, organize, and sync your notes across devices with a beautiful, responsive interface.
 
-## Creating a project
+## Features
 
-If you're seeing this, you've probably already done this step. Congrats!
+- 📝 **Rich Note Editing** - Markdown support with WYSIWYG editor
+- 📁 **Folder Organization** - Organize notes into folders
+- 🔐 **Secure Authentication** - JWT-based user authentication
+- 🖥️ **Desktop & Web** - Available as a desktop app (Tauri) and web application
+- 🔄 **Sync** - Keep your notes synchronized
+- 🎨 **Modern UI** - Built with Svelte and Tailwind CSS
+- 🐳 **Containerized** - Docker support for easy deployment
 
-```sh
-# create a new project in the current directory
-npx sv create
+## Tech Stack
 
-# create a new project in my-app
-npx sv create my-app
-```
+- **Frontend**: Svelte, SvelteKit, TypeScript, Tailwind CSS, Vite
+- **Backend**: Rust, Axum web framework
+- **Desktop**: Tauri
+- **Database**: PostgreSQL with migrations
+- **Authentication**: JWT
+- **Deployment**: Docker
 
-## Developing
+## Getting Started
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+### Prerequisites
 
-```sh
-npm run dev
+- Node.js 16+ and npm/yarn
+- Rust (for backend/desktop development)
+- Docker (optional, for containerized deployment)
 
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
+### Development
 
-## Building
+1. Install dependencies:
+   ```sh
+   npm install
+   ```
 
-To create a production version of your app:
+2. Start the development server:
+   ```sh
+   npm run dev
+   ```
 
+   Or open in a new browser tab:
+   ```sh
+   npm run dev -- --open
+   ```
+
+3. For backend development, see [server/](server/) directory
+
+### Building
+
+Build for production:
 ```sh
 npm run build
 ```
 
-You can preview the production build with `npm run preview`.
+Preview the production build:
+```sh
+npm run preview
+```
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+### Desktop App (Tauri)
+
+Build the desktop application:
+```sh
+npm run tauri build
+```
+
+## Project Structure
+
+```
+├── src/                 # Frontend code (Svelte/TypeScript)
+│   ├── components/      # Reusable UI components
+│   ├── lib/             # Utilities, stores, and API adapters
+│   ├── routes/          # SvelteKit pages
+│   └── types/           # TypeScript type definitions
+├── server/              # Rust backend
+│   ├── src/
+│   │   ├── api/         # API endpoints
+│   │   ├── auth/        # Authentication logic
+│   │   └── db/          # Database models
+│   └── migrations/      # SQL migrations
+└── src-tauri/           # Tauri desktop configuration
+```
+
+## Deployment
+
+### Docker
+
+Build and run the application in Docker:
+```sh
+docker-compose up
+```
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment instructions.
+
+## Documentation
+
+- [Branching Strategy](BRANCHING.md)
+- [Deployment Guide](DEPLOYMENT.md)
+- [Image Support](IMAGE_SUPPORT.md)
+
+## License
+
+See [LICENSE](LICENSE) file for details.
+
+## Contributing
+
+Contributions are welcome! Please ensure your changes follow the project's branching strategy and testing requirements.
