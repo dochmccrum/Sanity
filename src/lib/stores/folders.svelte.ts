@@ -57,7 +57,7 @@ export function createFoldersStore() {
     try {
       await foldersApi.deleteFolder(id);
       folders = folders.filter((f) => f.id !== id);
-      if (selectedFolder?.id === id) {
+      if (selectedFolder && selectedFolder !== 'uncategorised' && selectedFolder.id === id) {
         selectedFolder = null;
       }
       return true;

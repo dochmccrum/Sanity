@@ -1,6 +1,50 @@
 <script lang="ts">
   import { fade, scale } from 'svelte/transition';
-  let { open = $bindable(false), settings }: { open?: boolean; settings: any } = $props();
+  let {
+    open = $bindable(false),
+    settings,
+    isTauri = false,
+    onSync
+  }: {
+    open?: boolean;
+    settings: any;
+    isTauri?: boolean;
+    onSync?: () => Promise<void> | void;
+  } = $props();
+
+  let syncPassword = $state('');
+  let loginBusy = $state(false);
+  let syncBusy = $state(false);
+  let syncStatus = $state<string | null>(null);
+
+  async function handleLogin() {
+    if (!settings?.loginSync) return;
+    loginBusy = true;
+    syncStatus = null;
+    try {
+      await settings.loginSync(syncPassword);
+      syncStatus = 'Logged in.';
+    } catch (e) {
+      syncStatus = e instanceof Error ? e.message : 'Login failed';
+    } finally {
+      loginBusy = false;
+    }
+  }
+
+  async function handleSyncNow() {
+    if (!onSync) return;
+    syncBusy = true;
+    syncStatus = null;
+    try {
+      await onSync();
+      settings?.refreshLastSync?.();
+      syncStatus = 'Synced.';
+    } catch (e) {
+      syncStatus = e instanceof Error ? e.message : 'Sync failed';
+    } finally {
+      syncBusy = false;
+    }
+  }
 
   function handleBackdropClick(e: MouseEvent) {
     if (e.target === e.currentTarget) {
@@ -184,6 +228,78 @@
             ></span>
           </button>
         </div>
+
+        {#if isTauri}
+          <div class="border-t border-gray-200 pt-6">
+            <h3 class="text-lg font-semibold text-gray-900">Sync</h3>
+            <p class="text-sm text-gray-500 mt-1">
+              Configure a server URL to sync notes between devices.
+            </p>
+
+            <div class="mt-4 space-y-3">
+              <div>
+                <label class="block text-sm font-medium text-gray-900" for="sync-server-url">
+                  Server URL
+                </label>
+                <input
+                  id="sync-server-url"
+                  class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2"
+                  placeholder="https://notes.yourdomain.com"
+                  bind:value={settings.syncServerUrl}
+                />
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-900" for="sync-username">
+                  Username
+                </label>
+                <input
+                  id="sync-username"
+                  class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2"
+                  placeholder="mmccrum"
+                  bind:value={settings.syncUsername}
+                />
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-900" for="sync-password">
+                  Password
+                </label>
+                <input
+                  id="sync-password"
+                  type="password"
+                  class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2"
+                  placeholder="(currently optional)"
+                  bind:value={syncPassword}
+                />
+              </div>
+
+              <div class="flex gap-2">
+                <button
+                  class="px-4 py-2 bg-gray-200 text-gray-900 rounded-lg hover:bg-gray-300 transition-colors disabled:opacity-60"
+                  onclick={handleLogin}
+                  disabled={loginBusy || !settings.syncServerUrl || !settings.syncUsername}
+                >
+                  {loginBusy ? 'Logging in…' : 'Login'}
+                </button>
+                <button
+                  class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-60"
+                  onclick={handleSyncNow}
+                  disabled={syncBusy || !settings.syncServerUrl}
+                >
+                  {syncBusy ? 'Syncing…' : 'Sync now'}
+                </button>
+              </div>
+
+              <div class="text-sm text-gray-600">
+                <div>Last sync: {settings.lastSync ?? 'never'}</div>
+                {#if syncStatus}
+                  <div class="mt-1">{syncStatus}</div>
+                {/if}
+              </div>
+            </div>
+          </div>
+        {/if}
 
       </div>
 

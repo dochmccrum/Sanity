@@ -52,6 +52,8 @@ pub fn run() {
             commands::save_note,
             commands::delete_note,
             commands::move_note,
+            commands::get_notes_updated_since,
+            commands::apply_sync_notes,
             // Folder commands
             commands::get_all_folders,
             commands::get_folder,

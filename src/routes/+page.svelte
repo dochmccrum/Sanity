@@ -2,14 +2,12 @@
   import { onMount } from 'svelte';
   import { fade, scale } from 'svelte/transition';
   import { browser } from '$app/environment';
-  import { getCurrentWebview } from '@tauri-apps/api/webview';
-  import { invoke } from '@tauri-apps/api/core';
-  import { listen } from '@tauri-apps/api/event';
-  import type { Note } from '$lib/api/notes';
+  import type { Note } from '$lib/types/note';
   import type { Folder } from '$lib/api/folders';
   import WysiwygEditor from '$lib/components/WysiwygEditor.svelte';
   import SettingsModal from '$lib/components/SettingsModal.svelte';
   import { uploadImage } from '$lib/utils/imageUpload';
+  const isTauri = typeof window !== 'undefined' && (window as any).__TAURI__;
 
   let notesStore: any = $state(null);
   let foldersStore: any = $state(null);
@@ -46,12 +44,59 @@
   let draggedNote: Note | null = $state(null);
   let dragOverFolder: string | null = $state(null);
   let expandedNotePreview = $state<string | null>(null);
+  let syncInProgress = $state(false);
 
   // Helper function to strip HTML tags for preview
   function stripHtml(html: string): string {
     const tmp = document.createElement('div');
     tmp.innerHTML = html;
     return tmp.textContent || tmp.innerText || '';
+  }
+
+  async function handleSyncNow() {
+    if (!browser || !isTauri || syncInProgress) return;
+    if (!settingsStore?.syncServerUrl) {
+      throw new Error('Set a Server URL first');
+    }
+
+    syncInProgress = true;
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+
+      const baseUrl = String(settingsStore.syncServerUrl).trim().replace(/\/+$/, '');
+      const token = localStorage.getItem('jwt');
+      const since = localStorage.getItem('jfnotes_last_sync');
+
+      const localNotes: any[] = await invoke('get_notes_updated_since', {
+        since: since || null,
+      });
+
+      // Folder sync is not implemented yet; avoid FK issues server-side.
+      const outgoing = localNotes.map((n) => ({ ...n, folder_id: null }));
+
+      const res = await fetch(`${baseUrl}/api/sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ since: since || undefined, notes: outgoing }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Sync failed: ${res.status}`);
+      }
+
+      const json = (await res.json()) as { pulled: any[]; last_sync: string };
+      await invoke('apply_sync_notes', { notes: json.pulled });
+
+      localStorage.setItem('jfnotes_last_sync', json.last_sync);
+      settingsStore?.refreshLastSync?.();
+
+      await Promise.all([notesStore?.loadNotes?.(), foldersStore?.loadFolders?.()]);
+    } finally {
+      syncInProgress = false;
+    }
   }
 
   function handleLeftResizeStart() {
@@ -160,8 +205,12 @@
     let unlistenFileDrop: (() => void) | null = null;
     let unlistenBackendDrop: (() => void) | null = null;
     const setupDragDrop = async () => {
-      if (!browser) return;
+      if (!browser || !isTauri) return;
       try {
+        const [{ getCurrentWebview }, { invoke }] = await Promise.all([
+          import('@tauri-apps/api/webview'),
+          import('@tauri-apps/api/core')
+        ]);
         const webview = getCurrentWebview();
         unlistenFileDrop = await webview.onDragDropEvent(async (event) => {
           const payload = event.payload;
@@ -349,7 +398,7 @@
     if (!foldersStore || !notesStore || !folderToDelete) return;
     
     // Delete all notes in this folder first
-    const notesToDelete = notesStore.notes.filter(note => note.folder_id === folderToDelete);
+    const notesToDelete = notesStore.notes.filter((note: Note) => note.folder_id === folderToDelete);
     for (const note of notesToDelete) {
       await notesStore.deleteNote(note.id);
     }
@@ -926,7 +975,7 @@
 </div>
 {/if}
 
-<SettingsModal bind:open={showSettings} settings={settingsStore} />
+<SettingsModal bind:open={showSettings} settings={settingsStore} isTauri={isTauri} onSync={handleSyncNow} />
 
 <!-- Delete Confirmation Modal -->
 {#if showDeleteConfirm}

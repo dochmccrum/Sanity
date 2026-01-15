@@ -3,7 +3,10 @@
  * Auto-generated types to match the Rust structures
  */
 
-import { invoke } from '@tauri-apps/api/core';
+async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<T>(cmd, args);
+}
 
 // ============================================================================
 // Types
@@ -15,6 +18,7 @@ export interface Note {
   content: string;
   folder_id: string | null;
   updated_at: string;
+  is_deleted: boolean;
   is_canvas: boolean;
 }
 
@@ -23,6 +27,7 @@ export interface NoteSummary {
   title: string;
   folder_id: string | null;
   updated_at: string;
+  is_deleted: boolean;
   is_canvas: boolean;
   content?: string; // Optional because UI might expect it, but we can make it optional
 }
@@ -32,6 +37,8 @@ export interface NoteInput {
   title: string;
   content: string;
   folder_id?: string | null;
+  updated_at?: string;
+  is_deleted: boolean;
   is_canvas: boolean;
 }
 
@@ -53,21 +60,21 @@ export interface CommandError {
  * Get all notes from the database
  */
 export async function getAllNotes(): Promise<NoteSummary[]> {
-  return invoke<NoteSummary[]>('get_all_notes');
+  return tauriInvoke<NoteSummary[]>('get_all_notes');
 }
 
 /**
  * Get a single note by ID
  */
 export async function getNote(id: string): Promise<Note | null> {
-  return invoke<Note | null>('get_note', { id });
+  return tauriInvoke<Note | null>('get_note', { id });
 }
 
 /**
  * Get notes by folder ID (pass undefined/null for root-level notes)
  */
 export async function getNotesByFolder(folderId?: string | null): Promise<NoteSummary[]> {
-  return invoke<NoteSummary[]>('get_notes_by_folder', { folderId });
+  return tauriInvoke<NoteSummary[]>('get_notes_by_folder', { folderId });
 }
 
 /**
@@ -76,7 +83,7 @@ export async function getNotesByFolder(folderId?: string | null): Promise<NoteSu
  * - Include `id` to update an existing note
  */
 export async function saveNote(note: NoteInput): Promise<Note> {
-  return invoke<Note>('save_note', { note });
+  return tauriInvoke<Note>('save_note', { note });
 }
 
 /**
@@ -84,14 +91,28 @@ export async function saveNote(note: NoteInput): Promise<Note> {
  * Returns true if a note was deleted, false if not found
  */
 export async function deleteNote(id: string): Promise<boolean> {
-  return invoke<boolean>('delete_note', { id });
+  return tauriInvoke<boolean>('delete_note', { id });
 }
 
 /**
  * Move a note to a different folder
  */
 export async function moveNote(id: string, folderId: string | null): Promise<void> {
-  return invoke('move_note', { id, folderId });
+  return tauriInvoke<void>('move_note', { id, folderId });
+}
+
+/**
+ * Get locally updated notes since a timestamp (RFC3339). Includes deleted notes.
+ */
+export async function getNotesUpdatedSince(since?: string | null): Promise<Note[]> {
+  return tauriInvoke<Note[]>('get_notes_updated_since', { since });
+}
+
+/**
+ * Apply notes pulled from the remote server.
+ */
+export async function applySyncNotes(notes: Note[]): Promise<void> {
+  return tauriInvoke<void>('apply_sync_notes', { notes });
 }
 
 // ============================================================================
@@ -108,7 +129,7 @@ export async function saveImageAsset(
   base64Data: string,
   fileExtension: string
 ): Promise<AssetResult> {
-  return invoke<AssetResult>('save_image_asset', { base64Data, fileExtension });
+  return tauriInvoke<AssetResult>('save_image_asset', { base64Data, fileExtension });
 }
 
 /**
@@ -120,28 +141,28 @@ export async function saveImageBytes(
   data: number[],
   fileExtension: string
 ): Promise<AssetResult> {
-  return invoke<AssetResult>('save_image_bytes', { data, fileExtension });
+  return tauriInvoke<AssetResult>('save_image_bytes', { data, fileExtension });
 }
 
 /**
  * Delete an asset by its ID
  */
 export async function deleteAsset(assetId: string): Promise<boolean> {
-  return invoke<boolean>('delete_asset', { assetId });
+  return tauriInvoke<boolean>('delete_asset', { assetId });
 }
 
 /**
  * List all saved assets
  */
 export async function listAssets(): Promise<AssetResult[]> {
-  return invoke<AssetResult[]>('list_assets');
+  return tauriInvoke<AssetResult[]>('list_assets');
 }
 
 /**
  * Get the path to the assets directory
  */
 export async function getAssetsPath(): Promise<string> {
-  return invoke<string>('get_assets_path');
+  return tauriInvoke<string>('get_assets_path');
 }
 
 // ============================================================================
@@ -177,6 +198,7 @@ export function createEmptyNote(folderId?: string | null): NoteInput {
     title: '',
     content: '',
     folder_id: folderId ?? null,
+    is_deleted: false,
     is_canvas: false,
   };
 }
@@ -189,6 +211,7 @@ export function createCanvasNote(folderId?: string | null): NoteInput {
     title: '',
     content: '{}', // Empty canvas JSON
     folder_id: folderId ?? null,
+    is_deleted: false,
     is_canvas: true,
   };
 }

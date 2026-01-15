@@ -5,6 +5,9 @@ export function createSettingsStore() {
   let showAllNotesFolder = $state(true);
   let showUncategorisedFolder = $state(true);
   let showNotePreviews = $state(true);
+  let syncServerUrl = $state('');
+  let syncUsername = $state('');
+  let lastSync = $state<string | null>(null);
 
   return {
     get autoFocusTitleOnNewNote() {
@@ -61,6 +64,64 @@ export function createSettingsStore() {
         localStorage.setItem('jfnotes_show_previews', JSON.stringify(value));
       }
     },
+
+    get syncServerUrl() {
+      return syncServerUrl;
+    },
+    set syncServerUrl(value: string) {
+      syncServerUrl = value;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('jfnotes_sync_server_url', value);
+      }
+    },
+
+    get syncUsername() {
+      return syncUsername;
+    },
+    set syncUsername(value: string) {
+      syncUsername = value;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('jfnotes_sync_username', value);
+      }
+    },
+
+    get lastSync() {
+      return lastSync;
+    },
+
+    refreshLastSync() {
+      if (typeof window !== 'undefined') {
+        lastSync = localStorage.getItem('jfnotes_last_sync');
+      }
+    },
+
+    async loginSync(password = ''): Promise<string> {
+      if (typeof window === 'undefined') {
+        throw new Error('loginSync can only run in the browser');
+      }
+
+      const base = (syncServerUrl ?? '').trim().replace(/\/+$/, '');
+      const url = `${base}/api/auth`;
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: syncUsername, password }),
+      });
+      if (!res.ok) {
+        throw new Error(`Login failed: ${res.status}`);
+      }
+      const json = (await res.json()) as { token: string };
+      localStorage.setItem('jwt', json.token);
+      return json.token;
+    },
+
+    logoutSync() {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('jwt');
+      }
+    },
+
     loadSettings() {
       if (typeof window !== 'undefined') {
         const savedAutoFocus = localStorage.getItem('jfnotes_auto_focus');
@@ -87,6 +148,16 @@ export function createSettingsStore() {
         if (savedShowPreviews !== null) {
           showNotePreviews = JSON.parse(savedShowPreviews);
         }
+
+        const savedSyncUrl = localStorage.getItem('jfnotes_sync_server_url');
+        if (savedSyncUrl !== null) {
+          syncServerUrl = savedSyncUrl;
+        }
+        const savedSyncUsername = localStorage.getItem('jfnotes_sync_username');
+        if (savedSyncUsername !== null) {
+          syncUsername = savedSyncUsername;
+        }
+        lastSync = localStorage.getItem('jfnotes_last_sync');
       }
     }
   };

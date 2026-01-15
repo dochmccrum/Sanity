@@ -1,0 +1,9 @@
+node_modules
+.svelte-kit
+build
+src-tauri/target
+server/target
+.git
+.gitignore
+Dockerfile
+**/*.log

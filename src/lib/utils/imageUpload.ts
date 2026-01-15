@@ -1,4 +1,9 @@
-import { invoke } from '@tauri-apps/api/core';
+const isTauri = typeof window !== 'undefined' && (window as any).__TAURI__;
+
+async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<T>(cmd, args);
+}
 
 export interface ImageUploadResult {
   id: string;
@@ -74,12 +79,16 @@ export async function uploadImage(file: File): Promise<string> {
     // Determine file extension
     const extension = file.type.split('/')[1] || 'png';
     
+    if (!isTauri) {
+      return scaledBase64;
+    }
+
     // Upload to Tauri backend
-    const result = await invoke<ImageUploadResult>('save_image_asset', {
+    const result = await tauriInvoke<ImageUploadResult>('save_image_asset', {
       base64Data: scaledBase64,
       fileExtension: extension
     });
-    
+
     return result.uri;
   } catch (error) {
     console.error('Failed to upload image:', error);
@@ -111,11 +120,15 @@ export async function uploadImageFromDataUrl(dataUrl: string): Promise<string> {
     const extension = match ? match[1] : 'png';
     
     // Upload directly (already base64)
-    const result = await invoke<ImageUploadResult>('save_image_asset', {
+    if (!isTauri) {
+      return dataUrl;
+    }
+
+    const result = await tauriInvoke<ImageUploadResult>('save_image_asset', {
       base64Data: dataUrl,
       fileExtension: extension
     });
-    
+
     return result.uri;
   } catch (error) {
     console.error('Failed to upload image from data URL:', error);

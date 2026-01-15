@@ -1,7 +1,8 @@
-import type { Note, NoteInput, NoteSummary } from '$lib/api/notes';
-import * as notesApi from '$lib/api/notes';
+import type { Note, NoteSummary } from '$lib/types/note';
+import { getNoteRepository } from '$lib/api/adapterContext';
 
 export function createNotesStore() {
+  const repo = getNoteRepository();
   let notes = $state<NoteSummary[]>([]);
   let selectedNote = $state<Note | null>(null);
   let loading = $state(false);
@@ -11,15 +12,8 @@ export function createNotesStore() {
     loading = true;
     error = null;
     try {
-      if (uncategorisedOnly) {
-        // Load all notes and filter for those without a folder
-        const allNotes = await notesApi.getAllNotes();
-        notes = allNotes.filter(note => !note.folder_id);
-      } else if (folderId) {
-        notes = await notesApi.getNotesByFolder(folderId);
-      } else {
-        notes = await notesApi.getAllNotes();
-      }
+      const all = await repo.listNotes(folderId ?? null);
+      notes = uncategorisedOnly ? all.filter((note) => !note.folder_id) : all;
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to load notes';
       console.error('Error loading notes:', err);
@@ -31,11 +25,12 @@ export function createNotesStore() {
   async function createNote(folderId?: string): Promise<Note | null> {
     error = null;
     try {
-      const newNote = await notesApi.saveNote({
+      const newNote = await repo.saveNote({
         title: 'Untitled Note',
         content: '',
-        folder_id: folderId,
+        folder_id: folderId ?? null,
         is_canvas: false,
+        is_deleted: false,
       });
       notes = [newNote, ...notes];
       selectedNote = newNote;
@@ -50,13 +45,7 @@ export function createNotesStore() {
   async function updateNote(note: Note) {
     error = null;
     try {
-      await notesApi.saveNote({
-        id: note.id,
-        title: note.title,
-        content: note.content,
-        folder_id: note.folder_id,
-        is_canvas: note.is_canvas,
-      });
+      await repo.saveNote(note);
       // Update the local copy
       const index = notes.findIndex((n) => n.id === note.id);
       if (index !== -1) {
@@ -74,7 +63,7 @@ export function createNotesStore() {
   async function deleteNote(id: string) {
     error = null;
     try {
-      await notesApi.deleteNote(id);
+      await repo.deleteNote(id);
       notes = notes.filter((n) => n.id !== id);
       if (selectedNote?.id === id) {
         selectedNote = null;
@@ -87,18 +76,17 @@ export function createNotesStore() {
 
   async function moveNote(noteId: string, folderId: string | null) {
       try {
-        await notesApi.moveNote(noteId, folderId);
-        
-        const noteIndex = notes.findIndex(n => n.id === noteId);
+        const updated = await repo.moveNote(noteId, folderId);
+
+        const noteIndex = notes.findIndex((n) => n.id === noteId);
         if (noteIndex !== -1) {
-            notes[noteIndex].folder_id = folderId;
-            // update timestamp locally?
+          notes[noteIndex] = updated;
         }
         if (selectedNote?.id === noteId) {
-             selectedNote.folder_id = folderId;
+          selectedNote = updated;
         }
       } catch (err) {
-          console.error("Failed to move note", err);
+        console.error('Failed to move note', err);
       }
   }
 
@@ -121,7 +109,7 @@ export function createNotesStore() {
 
     // Otherwise, fetch full details
     try {
-        const fullNote = await notesApi.getNote(note.id);
+        const fullNote = await repo.getNote(note.id);
         if (fullNote) {
             selectedNote = fullNote;
         }

@@ -69,6 +69,25 @@ pub async fn move_note(
     db.move_note(&id, folder_id.as_deref()).map_err(|e| e.into())
 }
 
+/// Get notes updated since an RFC3339 timestamp. Includes deleted notes.
+#[tauri::command]
+pub async fn get_notes_updated_since(
+    db: State<'_, Database>,
+    since: Option<String>,
+) -> Result<Vec<Note>, CommandError> {
+    db.get_notes_updated_since(since.as_deref())
+        .map_err(|e| e.into())
+}
+
+/// Apply notes pulled from a remote sync.
+#[tauri::command]
+pub async fn apply_sync_notes(
+    db: State<'_, Database>,
+    notes: Vec<Note>,
+) -> Result<(), CommandError> {
+    db.apply_sync_notes(notes).map_err(|e| e.into())
+}
+
 // ============================================================================
 // Folder Commands
 // ============================================================================

@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jfnotes}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jfnotes}
+      POSTGRES_DB: ${POSTGRES_DB:-jfnotes}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jfnotes"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    # Expose for local dev only; in production you can remove this.
+    ports:
+      - "5432:5432"
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-jfnotes}:${POSTGRES_PASSWORD:-jfnotes}@db:5432/${POSTGRES_DB:-jfnotes}
+      RUST_LOG: ${RUST_LOG:-info,axum=info,sqlx=info}
+      JWT_SECRET: ${JWT_SECRET:-change-me}
+      STATIC_DIR: /app/static
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+
+volumes:
+  db_data:

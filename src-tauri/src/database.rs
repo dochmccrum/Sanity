@@ -1,4 +1,4 @@
-use rusqlite::{Connection, Result as SqliteResult, params};
+use rusqlite::{Connection, OptionalExtension, Result as SqliteResult, params};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -13,6 +13,7 @@ pub struct Note {
     pub content: String,
     pub folder_id: Option<String>,
     pub updated_at: String,
+    pub is_deleted: bool,
     pub is_canvas: bool,
 }
 
@@ -23,6 +24,7 @@ pub struct NoteSummary {
     pub title: String,
     pub folder_id: Option<String>,
     pub updated_at: String,
+    pub is_deleted: bool,
     pub is_canvas: bool,
 }
 
@@ -50,7 +52,48 @@ pub struct NoteInput {
     pub title: String,
     pub content: String,
     pub folder_id: Option<String>,
+    pub updated_at: Option<String>,
+    pub is_deleted: bool,
     pub is_canvas: bool,
+}
+
+fn note_row_to_note(row: &rusqlite::Row) -> SqliteResult<Note> {
+    Ok(Note {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        content: row.get(2)?,
+        folder_id: row.get(3)?,
+        updated_at: row.get(4)?,
+        is_deleted: row.get::<_, i32>(5)? != 0,
+        is_canvas: row.get::<_, i32>(6)? != 0,
+    })
+}
+
+fn ensure_notes_schema(conn: &Connection) -> SqliteResult<()> {
+    // Add `is_deleted` for existing installs.
+    let mut stmt = conn.prepare("PRAGMA table_info(notes)")?;
+    let mut rows = stmt.query([])?;
+    let mut has_is_deleted = false;
+    while let Some(row) = rows.next()? {
+        let col_name: String = row.get(1)?;
+        if col_name == "is_deleted" {
+            has_is_deleted = true;
+            break;
+        }
+    }
+
+    if !has_is_deleted {
+        conn.execute(
+            "ALTER TABLE notes ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_notes_is_deleted ON notes(is_deleted)",
+            [],
+        )?;
+    }
+
+    Ok(())
 }
 
 /// Database wrapper for thread-safe access
@@ -97,11 +140,14 @@ impl Database {
                 content TEXT NOT NULL DEFAULT '',
                 folder_id TEXT,
                 updated_at TEXT NOT NULL,
+                is_deleted INTEGER NOT NULL DEFAULT 0,
                 is_canvas INTEGER NOT NULL DEFAULT 0,
                 FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL
             )",
             [],
         )?;
+
+        ensure_notes_schema(&conn)?;
 
         // Create indexes for common queries
         conn.execute(
@@ -123,8 +169,9 @@ impl Database {
     pub fn get_all_notes(&self) -> SqliteResult<Vec<NoteSummary>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, title, folder_id, updated_at, is_canvas 
-             FROM notes 
+            "SELECT id, title, folder_id, updated_at, is_deleted, is_canvas
+             FROM notes
+             WHERE is_deleted = 0
              ORDER BY updated_at DESC"
         )?;
 
@@ -134,7 +181,8 @@ impl Database {
                 title: row.get(1)?,
                 folder_id: row.get(2)?,
                 updated_at: row.get(3)?,
-                is_canvas: row.get::<_, i32>(4)? != 0,
+                is_deleted: row.get::<_, i32>(4)? != 0,
+                is_canvas: row.get::<_, i32>(5)? != 0,
             })
         })?;
 
@@ -150,24 +198,27 @@ impl Database {
     pub fn save_note(&self, input: NoteInput) -> SqliteResult<Note> {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
+        let updated_at = input.updated_at.unwrap_or_else(|| now.clone());
 
         let id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
 
         conn.execute(
-            "INSERT INTO notes (id, title, content, folder_id, updated_at, is_canvas)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "INSERT INTO notes (id, title, content, folder_id, updated_at, is_deleted, is_canvas)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 content = excluded.content,
                 folder_id = excluded.folder_id,
                 updated_at = excluded.updated_at,
+                is_deleted = excluded.is_deleted,
                 is_canvas = excluded.is_canvas",
             params![
                 &id,
                 &input.title,
                 &input.content,
                 &input.folder_id,
-                &now,
+                &updated_at,
+                input.is_deleted as i32,
                 input.is_canvas as i32,
             ],
         )?;
@@ -177,7 +228,8 @@ impl Database {
             title: input.title,
             content: input.content,
             folder_id: input.folder_id,
-            updated_at: now,
+            updated_at,
+            is_deleted: input.is_deleted,
             is_canvas: input.is_canvas,
         })
     }
@@ -185,16 +237,21 @@ impl Database {
     /// Delete a note by ID
     pub fn delete_note(&self, id: &str) -> SqliteResult<bool> {
         let conn = self.conn.lock().unwrap();
-        let rows_affected = conn.execute("DELETE FROM notes WHERE id = ?1", params![id])?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let rows_affected = conn.execute(
+            "UPDATE notes SET is_deleted = 1, updated_at = ?2 WHERE id = ?1",
+            params![id, now],
+        )?;
         Ok(rows_affected > 0)
     }
 
     /// Move a note to a different folder
     pub fn move_note(&self, id: &str, folder_id: Option<&str>) -> SqliteResult<()> {
         let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
-            "UPDATE notes SET folder_id = ?2, updated_at = datetime('now') WHERE id = ?1",
-            params![id, folder_id],
+            "UPDATE notes SET folder_id = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, folder_id, now],
         )?;
         Ok(())
     }
@@ -203,22 +260,15 @@ impl Database {
     pub fn get_note_by_id(&self, id: &str) -> SqliteResult<Option<Note>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, title, content, folder_id, updated_at, is_canvas 
-             FROM notes 
-             WHERE id = ?1"
+            "SELECT id, title, content, folder_id, updated_at, is_deleted, is_canvas
+             FROM notes
+             WHERE id = ?1 AND is_deleted = 0"
         )?;
 
         let mut rows = stmt.query(params![id])?;
 
         if let Some(row) = rows.next()? {
-            Ok(Some(Note {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                content: row.get(2)?,
-                folder_id: row.get(3)?,
-                updated_at: row.get(4)?,
-                is_canvas: row.get::<_, i32>(5)? != 0,
-            }))
+            Ok(Some(note_row_to_note(row)?))
         } else {
             Ok(None)
         }
@@ -235,16 +285,17 @@ impl Database {
                 title: row.get(1)?,
                 folder_id: row.get(2)?,
                 updated_at: row.get(3)?,
-                is_canvas: row.get::<_, i32>(4)? != 0,
+                is_deleted: row.get::<_, i32>(4)? != 0,
+                is_canvas: row.get::<_, i32>(5)? != 0,
             })
         };
 
         match folder_id {
             Some(fid) => {
                 let mut stmt = conn.prepare(
-                    "SELECT id, title, folder_id, updated_at, is_canvas 
-                     FROM notes 
-                     WHERE folder_id = ?1
+                    "SELECT id, title, folder_id, updated_at, is_deleted, is_canvas
+                     FROM notes
+                     WHERE folder_id = ?1 AND is_deleted = 0
                      ORDER BY updated_at DESC"
                 )?;
                 let rows = stmt.query_map(params![fid], row_to_note)?;
@@ -254,9 +305,9 @@ impl Database {
             }
             None => {
                 let mut stmt = conn.prepare(
-                    "SELECT id, title, folder_id, updated_at, is_canvas 
-                     FROM notes 
-                     WHERE folder_id IS NULL
+                    "SELECT id, title, folder_id, updated_at, is_deleted, is_canvas
+                     FROM notes
+                     WHERE folder_id IS NULL AND is_deleted = 0
                      ORDER BY updated_at DESC"
                 )?;
                 let rows = stmt.query_map([], row_to_note)?;
@@ -267,6 +318,86 @@ impl Database {
         };
 
         Ok(notes)
+    }
+
+    /// Get notes updated since a given timestamp (RFC3339 string). Includes deleted notes.
+    pub fn get_notes_updated_since(&self, since: Option<&str>) -> SqliteResult<Vec<Note>> {
+        let conn = self.conn.lock().unwrap();
+        let mut notes = Vec::new();
+
+        match since {
+            Some(since_ts) => {
+                let mut stmt = conn.prepare(
+                    "SELECT id, title, content, folder_id, updated_at, is_deleted, is_canvas
+                     FROM notes
+                     WHERE updated_at > ?1
+                     ORDER BY updated_at ASC",
+                )?;
+                let rows = stmt.query_map(params![since_ts], note_row_to_note)?;
+                for row in rows {
+                    notes.push(row?);
+                }
+            }
+            None => {
+                let mut stmt = conn.prepare(
+                    "SELECT id, title, content, folder_id, updated_at, is_deleted, is_canvas
+                     FROM notes
+                     ORDER BY updated_at ASC",
+                )?;
+                let rows = stmt.query_map([], note_row_to_note)?;
+                for row in rows {
+                    notes.push(row?);
+                }
+            }
+        }
+
+        Ok(notes)
+    }
+
+    /// Apply notes from a remote sync. Preserves remote `updated_at` and `is_deleted`.
+    pub fn apply_sync_notes(&self, notes: Vec<Note>) -> SqliteResult<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+
+        for note in notes {
+            let mut folder_id = note.folder_id;
+            if let Some(ref fid) = folder_id {
+                let exists: Option<i32> = tx
+                    .query_row(
+                        "SELECT 1 FROM folders WHERE id = ?1 LIMIT 1",
+                        params![fid],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                if exists.is_none() {
+                    folder_id = None;
+                }
+            }
+
+            tx.execute(
+                "INSERT INTO notes (id, title, content, folder_id, updated_at, is_deleted, is_canvas)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT(id) DO UPDATE SET
+                    title = excluded.title,
+                    content = excluded.content,
+                    folder_id = excluded.folder_id,
+                    updated_at = excluded.updated_at,
+                    is_deleted = excluded.is_deleted,
+                    is_canvas = excluded.is_canvas",
+                params![
+                    note.id,
+                    note.title,
+                    note.content,
+                    folder_id,
+                    note.updated_at,
+                    note.is_deleted as i32,
+                    note.is_canvas as i32,
+                ],
+            )?;
+        }
+
+        tx.commit()?;
+        Ok(())
     }
 
     /// Get all folders

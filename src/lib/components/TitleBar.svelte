@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { getCurrentWindow } from '@tauri-apps/api/window';
   import { onMount } from 'svelte';
+  const isTauri = typeof window !== 'undefined' && (window as any).__TAURI__;
   
   // We need to keep track of maximized state to toggle the icon
   let isMaximized = $state(false);
@@ -13,8 +13,10 @@
   }
 
   onMount(() => {
+    if (!isTauri) return;
     const initWindow = async () => {
       try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
         appWindow = getCurrentWindow();
         console.log('Window initialized:', appWindow);
         
