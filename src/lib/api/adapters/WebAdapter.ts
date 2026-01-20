@@ -1,5 +1,6 @@
-import type { NoteRepository } from '../NoteRepository';
-import type { Note, NoteInput, SyncPayload, SyncResult } from '../../types/note';
+import type { NoteRepository, CrdtState } from '../NoteRepository';
+import type { Note, NoteInput, SyncPayload, SyncResult, CrdtSyncRequest, CrdtSyncResponse } from '../../types/note';
+import { base64ToUint8Array, uint8ArrayToBase64 } from '../../sync/YjsDocManager';
 
 function authHeader() {
   const token = typeof window !== 'undefined' ? localStorage.getItem('jwt') : null;
@@ -16,11 +17,19 @@ async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit): Promi
   return (await res.json()) as T;
 }
 
+interface ServerCrdtState {
+  note_id: string;
+  ydoc_state: string;  // base64
+  state_vector: string; // base64
+  updated_at: string;
+}
+
 export class WebAdapter implements NoteRepository {
   constructor(private readonly baseUrl = '') {}
 
-  async listNotes(): Promise<Note[]> {
-    return fetchJson<Note[]>(`${this.baseUrl}/api/notes`, {
+  async listNotes(folderId?: string | null): Promise<Note[]> {
+    const query = typeof folderId === 'undefined' ? '' : `?folder_id=${encodeURIComponent(folderId ?? 'null')}`;
+    return fetchJson<Note[]>(`${this.baseUrl}/api/notes${query}`, {
       headers: { 'Content-Type': 'application/json', ...authHeader() } as Record<string, string>,
     });
   }
@@ -61,5 +70,52 @@ export class WebAdapter implements NoteRepository {
       headers: { 'Content-Type': 'application/json', ...authHeader() } as Record<string, string>,
       body: JSON.stringify(payload),
     });
+  }
+
+  async syncCrdt(request: CrdtSyncRequest): Promise<CrdtSyncResponse> {
+    return fetchJson<CrdtSyncResponse>(`${this.baseUrl}/api/sync/crdt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() } as Record<string, string>,
+      body: JSON.stringify(request),
+    });
+  }
+
+  /**
+   * Get CRDT state for a note from the server
+   * This allows the web app to load existing CRDT state created by other clients
+   */
+  async getCrdtState(noteId: string): Promise<CrdtState | null> {
+    try {
+      const response = await fetchJson<ServerCrdtState | null>(
+        `${this.baseUrl}/api/crdt/${noteId}`,
+        {
+          headers: { 'Content-Type': 'application/json', ...authHeader() } as Record<string, string>,
+        }
+      );
+      
+      if (!response) return null;
+      
+      return {
+        note_id: response.note_id,
+        ydoc_state: base64ToUint8Array(response.ydoc_state),
+        state_vector: base64ToUint8Array(response.state_vector),
+        updated_at: response.updated_at,
+      };
+    } catch (error) {
+      // If the endpoint doesn't exist or fails, return null
+      console.warn('Failed to fetch CRDT state:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get WebSocket URL for real-time sync
+   */
+  getWebSocketUrl(): string {
+    const protocol = this.baseUrl.startsWith('https') ? 'wss' : 'ws';
+    const host = this.baseUrl.replace(/^https?:\/\//, '') || window.location.host;
+    const token = typeof window !== 'undefined' ? localStorage.getItem('jwt') : null;
+    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${protocol}://${host}/api/ws${tokenParam}`;
   }
 }

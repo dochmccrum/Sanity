@@ -215,3 +215,74 @@ export function createCanvasNote(folderId?: string | null): NoteInput {
     is_canvas: true,
   };
 }
+
+// ============================================================================
+// CRDT Sync API
+// ============================================================================
+
+export interface CrdtState {
+  note_id: string;
+  ydoc_state: number[];      // Uint8Array as number array
+  state_vector: number[];    // Uint8Array as number array
+  updated_at: string;
+}
+
+/**
+ * Save CRDT state for a note (Yjs document binary)
+ */
+export async function saveCrdtState(
+  noteId: string,
+  ydocState: Uint8Array,
+  stateVector: Uint8Array
+): Promise<CrdtState> {
+  return tauriInvoke<CrdtState>('save_crdt_state', {
+    noteId,
+    ydocState: Array.from(ydocState),
+    stateVector: Array.from(stateVector),
+  });
+}
+
+/**
+ * Get CRDT state for a note
+ */
+export async function getCrdtState(noteId: string): Promise<CrdtState | null> {
+  return tauriInvoke<CrdtState | null>('get_crdt_state', { noteId });
+}
+
+/**
+ * Get all CRDT states
+ */
+export async function getAllCrdtStates(): Promise<CrdtState[]> {
+  return tauriInvoke<CrdtState[]>('get_all_crdt_states');
+}
+
+/**
+ * Get CRDT states for specific notes
+ */
+export async function getCrdtStatesForNotes(noteIds: string[]): Promise<CrdtState[]> {
+  return tauriInvoke<CrdtState[]>('get_crdt_states_for_notes', { noteIds });
+}
+
+/**
+ * Delete CRDT state for a note
+ */
+export async function deleteCrdtState(noteId: string): Promise<boolean> {
+  return tauriInvoke<boolean>('delete_crdt_state', { noteId });
+}
+
+/**
+ * Get CRDT states updated since a timestamp
+ */
+export async function getCrdtStatesUpdatedSince(since?: string | null): Promise<CrdtState[]> {
+  return tauriInvoke<CrdtState[]>('get_crdt_states_updated_since', { since });
+}
+
+/**
+ * Apply a CRDT update from the server
+ */
+export async function applyCrdtUpdate(noteId: string, update: Uint8Array): Promise<void> {
+  return tauriInvoke<void>('apply_crdt_update', {
+    noteId,
+    update: Array.from(update),
+  });
+}

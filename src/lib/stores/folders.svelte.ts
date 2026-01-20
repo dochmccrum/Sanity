@@ -12,6 +12,7 @@ export function createFoldersStore() {
     error = null;
     try {
       folders = await foldersApi.getAllFolders();
+      console.log('[FoldersStore] Loaded folders:', folders.length, folders.map(f => f.name));
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to load folders';
       console.error('Error loading folders:', err);

@@ -14,12 +14,15 @@ mod api;
 mod auth;
 mod db;
 
+use api::sync_crdt::SyncHub;
+
 #[derive(Clone)]
 pub struct AppState {
     pub pool: sqlx::PgPool,
     pub jwt_secret: Arc<String>,
     pub static_dir: Arc<PathBuf>,
     pub index_html: Arc<PathBuf>,
+    pub sync_hub: Option<Arc<SyncHub>>,
 }
 
 #[tokio::main]
@@ -38,11 +41,15 @@ async fn main() -> anyhow::Result<()> {
     // Run migrations on startup to ensure schema is present
     sqlx::migrate!("./migrations").run(&pool).await?;
 
+    // Initialize the sync hub for WebSocket real-time sync
+    let sync_hub = Arc::new(SyncHub::new());
+
     let state = AppState {
         pool,
         jwt_secret: Arc::new(jwt_secret),
         static_dir: Arc::new(static_dir_path.clone()),
         index_html: Arc::new(index_html_path.clone()),
+        sync_hub: Some(sync_hub),
     };
 
     let serve_dir = ServeDir::new(static_dir_path)

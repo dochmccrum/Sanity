@@ -1,4 +1,4 @@
-use crate::database::{assets, Database, Note, NoteSummary, NoteInput, Folder, FolderInput};
+use crate::database::{assets, Database, Note, NoteSummary, NoteInput, Folder, FolderInput, CrdtState, CrdtStateInput};
 use tauri::{Manager, State};
 
 /// Error type for command responses
@@ -126,6 +126,29 @@ pub async fn delete_folder(db: State<'_, Database>, id: String) -> Result<(), Co
     db.delete_folder(&id).map_err(|e| e.into())
 }
 
+/// Get folders updated since an RFC3339 timestamp. Includes deleted folders.
+#[tauri::command]
+pub async fn get_folders_updated_since(
+    db: State<'_, Database>,
+    since: Option<String>,
+) -> Result<Vec<Folder>, CommandError> {
+    db.get_folders_updated_since(since.as_deref())
+        .map_err(|e| e.into())
+}
+
+/// Apply folders pulled from a remote sync.
+#[tauri::command]
+pub async fn apply_sync_folders(
+    db: State<'_, Database>,
+    folders: Vec<Folder>,
+) -> Result<(), CommandError> {
+    println!("[apply_sync_folders] Received {} folders to apply", folders.len());
+    for f in &folders {
+        println!("[apply_sync_folders]   - {} '{}' is_deleted={}", f.id, f.name, f.is_deleted);
+    }
+    db.apply_sync_folders(folders).map_err(|e| e.into())
+}
+
 // ============================================================================
 // Asset Commands
 // ============================================================================
@@ -238,4 +261,77 @@ pub async fn get_assets_path(app_handle: tauri::AppHandle) -> Result<String, Com
 
     let assets_dir = assets::get_assets_dir(&app_data_dir);
     Ok(assets_dir.to_string_lossy().to_string())
+}
+
+// ============================================================================
+// CRDT Sync Commands
+// ============================================================================
+
+/// Save CRDT state for a note (Yjs document binary)
+#[tauri::command]
+pub async fn save_crdt_state(
+    db: State<'_, Database>,
+    note_id: String,
+    ydoc_state: Vec<u8>,
+    state_vector: Vec<u8>,
+) -> Result<CrdtState, CommandError> {
+    db.save_crdt_state(CrdtStateInput {
+        note_id,
+        ydoc_state,
+        state_vector,
+    }).map_err(|e| e.into())
+}
+
+/// Get CRDT state for a note
+#[tauri::command]
+pub async fn get_crdt_state(
+    db: State<'_, Database>,
+    note_id: String,
+) -> Result<Option<CrdtState>, CommandError> {
+    db.get_crdt_state(&note_id).map_err(|e| e.into())
+}
+
+/// Get all CRDT states (for full sync)
+#[tauri::command]
+pub async fn get_all_crdt_states(
+    db: State<'_, Database>,
+) -> Result<Vec<CrdtState>, CommandError> {
+    db.get_all_crdt_states().map_err(|e| e.into())
+}
+
+/// Get CRDT states for multiple notes
+#[tauri::command]
+pub async fn get_crdt_states_for_notes(
+    db: State<'_, Database>,
+    note_ids: Vec<String>,
+) -> Result<Vec<CrdtState>, CommandError> {
+    db.get_crdt_states_for_notes(&note_ids).map_err(|e| e.into())
+}
+
+/// Delete CRDT state for a note
+#[tauri::command]
+pub async fn delete_crdt_state(
+    db: State<'_, Database>,
+    note_id: String,
+) -> Result<bool, CommandError> {
+    db.delete_crdt_state(&note_id).map_err(|e| e.into())
+}
+
+/// Get CRDT states updated since a timestamp
+#[tauri::command]
+pub async fn get_crdt_states_updated_since(
+    db: State<'_, Database>,
+    since: Option<String>,
+) -> Result<Vec<CrdtState>, CommandError> {
+    db.get_crdt_states_updated_since(since.as_deref()).map_err(|e| e.into())
+}
+
+/// Apply a CRDT update from the server
+#[tauri::command]
+pub async fn apply_crdt_update(
+    db: State<'_, Database>,
+    note_id: String,
+    update: Vec<u8>,
+) -> Result<(), CommandError> {
+    db.apply_crdt_update(&note_id, &update).map_err(|e| e.into())
 }

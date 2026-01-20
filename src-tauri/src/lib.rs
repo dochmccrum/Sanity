@@ -60,6 +60,8 @@ pub fn run() {
             commands::get_folders_by_parent,
             commands::save_folder,
             commands::delete_folder,
+            commands::get_folders_updated_since,
+            commands::apply_sync_folders,
             // Asset commands
             commands::save_image_asset,
             commands::save_image_bytes,
@@ -67,6 +69,14 @@ pub fn run() {
             commands::delete_asset,
             commands::list_assets,
             commands::get_assets_path,
+            // CRDT sync commands
+            commands::save_crdt_state,
+            commands::get_crdt_state,
+            commands::get_all_crdt_states,
+            commands::get_crdt_states_for_notes,
+            commands::delete_crdt_state,
+            commands::get_crdt_states_updated_since,
+            commands::apply_crdt_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

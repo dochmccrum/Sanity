@@ -4,7 +4,7 @@
   import { browser } from '$app/environment';
   import type { Note } from '$lib/types/note';
   import type { Folder } from '$lib/api/folders';
-  import WysiwygEditor from '$lib/components/WysiwygEditor.svelte';
+  import CollaborativeEditor from '$lib/components/CollaborativeEditor.svelte';
   import SettingsModal from '$lib/components/SettingsModal.svelte';
   import { uploadImage } from '$lib/utils/imageUpload';
   const isTauri = typeof window !== 'undefined' && (window as any).__TAURI__;
@@ -46,6 +46,11 @@
   let expandedNotePreview = $state<string | null>(null);
   let syncInProgress = $state(false);
 
+  // Auto-sync (Tauri only): debounce pushes after edits + periodic pulls.
+  let autoSyncTimeout: ReturnType<typeof setTimeout> | null = null;
+  let autoPullInterval: ReturnType<typeof setInterval> | null = null;
+  let syncQueued = false;
+
   // Helper function to strip HTML tags for preview
   function stripHtml(html: string): string {
     const tmp = document.createElement('div');
@@ -59,43 +64,107 @@
       throw new Error('Set a Server URL first');
     }
 
+    const hasToken = !!localStorage.getItem('jwt');
+    if (!hasToken) {
+      throw new Error('Login first');
+    }
+
     syncInProgress = true;
     try {
       const { invoke } = await import('@tauri-apps/api/core');
-
       const baseUrl = String(settingsStore.syncServerUrl).trim().replace(/\/+$/, '');
-      const token = localStorage.getItem('jwt');
-      const since = localStorage.getItem('jfnotes_last_sync');
+      const token = localStorage.getItem('jwt')!;
 
-      const localNotes: any[] = await invoke('get_notes_updated_since', {
-        since: since || null,
+      // 1) Sync folders first (still using REST for folders)
+      const serverSince = localStorage.getItem('jfnotes_last_sync');
+      const localSince = localStorage.getItem('jfnotes_last_local_sync');
+
+      const localFolders: any[] = await invoke('get_folders_updated_since', {
+        since: localSince || null,
       });
 
-      // Folder sync is not implemented yet; avoid FK issues server-side.
-      const outgoing = localNotes.map((n) => ({ ...n, folder_id: null }));
+      // Get all local folder IDs so server can return any we're missing
+      const allLocalFolders: any[] = await invoke('get_folders_updated_since', {
+        since: null,
+      });
+      const knownFolderIds = allLocalFolders.map((f: any) => f.id);
 
-      const res = await fetch(`${baseUrl}/api/sync`, {
+      const foldersRes = await fetch(`${baseUrl}/api/sync/folders`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ since: since || undefined, notes: outgoing }),
+        body: JSON.stringify({ 
+          since: serverSince || undefined, 
+          folders: localFolders,
+          known_folder_ids: knownFolderIds,
+        }),
       });
 
-      if (!res.ok) {
-        throw new Error(`Sync failed: ${res.status}`);
+      if (!foldersRes.ok) {
+        throw new Error(`Folder sync failed: ${foldersRes.status}`);
       }
 
-      const json = (await res.json()) as { pulled: any[]; last_sync: string };
-      await invoke('apply_sync_notes', { notes: json.pulled });
+      const foldersJson = (await foldersRes.json()) as { pulled: any[]; last_sync: string };
+      console.log('[FolderSync] Pulled folders from server:', foldersJson.pulled.length, foldersJson.pulled);
+      await invoke('apply_sync_folders', { folders: foldersJson.pulled });
+      console.log('[FolderSync] Applied sync folders to local DB');
 
-      localStorage.setItem('jfnotes_last_sync', json.last_sync);
+      // Reload folders immediately after applying sync
+      await foldersStore?.loadFolders?.();
+
+      // 2) Sync note CRDT states and metadata
+      try {
+        if (notesStore?.syncCrdtToServer) {
+          // Pass the last server sync timestamp to optimize upload payload
+          // If null, it will push everything (full sync)
+          await notesStore.syncCrdtToServer(baseUrl, token, serverSince);
+        }
+      } catch (crdtErr) {
+        console.warn('[Sync] CRDT sync failed, but folder sync succeeded:', crdtErr);
+        // Don't throw - folder sync was successful
+      }
+
+      // Update sync timestamps
+      localStorage.setItem('jfnotes_last_sync', new Date().toISOString());
+      localStorage.setItem('jfnotes_last_local_sync', new Date().toISOString());
       settingsStore?.refreshLastSync?.();
 
-      await Promise.all([notesStore?.loadNotes?.(), foldersStore?.loadFolders?.()]);
+      // Reload notes to reflect any server changes
+      await notesStore?.loadNotes?.();
     } finally {
       syncInProgress = false;
+    }
+  }
+
+  function scheduleAutoSync() {
+    if (!browser || !isTauri) return;
+    syncQueued = true;
+    if (autoSyncTimeout) clearTimeout(autoSyncTimeout);
+    autoSyncTimeout = setTimeout(() => {
+      if (syncQueued) {
+        syncQueued = false;
+        void autoSync();
+      }
+    }, 1500);
+  }
+
+  async function autoSync() {
+    if (!browser || !isTauri) return;
+    if (syncInProgress) {
+      // Coalesce further edits while a sync is running.
+      syncQueued = true;
+      return;
+    }
+    if (!settingsStore?.syncServerUrl) return;
+    if (!localStorage.getItem('jwt')) return;
+
+    try {
+      await handleSyncNow();
+    } catch (e) {
+      // Background sync should never interrupt the editor.
+      console.warn('Auto-sync failed:', e);
     }
   }
 
@@ -199,6 +268,10 @@
       document.addEventListener('mouseup', handleResizeMouseUp);
     }
 
+    const handleLocalChange = () => {
+      scheduleAutoSync();
+    };
+
     // Document-level drop handling removed to avoid duplicate inserts with Tauri drag/drop.
     
     // Listen for Tauri drag/drop events
@@ -275,6 +348,63 @@
         foldersStore = createFoldersStore();
         settingsStore = createSettingsStore();
         settingsStore.loadSettings();
+
+        // Auto-sync wiring (Tauri only)
+        if (isTauri) {
+          const wrapMutation = (obj: any, key: string) => {
+            const original = obj?.[key];
+            if (typeof original !== 'function') return;
+            obj[key] = async (...args: any[]) => {
+              // Start debounce immediately so typing feels responsive.
+              scheduleAutoSync();
+              return original(...args);
+            };
+          };
+
+          wrapMutation(notesStore, 'createNote');
+          wrapMutation(notesStore, 'updateNote');
+          wrapMutation(notesStore, 'deleteNote');
+          wrapMutation(notesStore, 'moveNote');
+          wrapMutation(foldersStore, 'createFolder');
+          wrapMutation(foldersStore, 'updateFolder');
+          wrapMutation(foldersStore, 'deleteFolder');
+
+          if (autoPullInterval) clearInterval(autoPullInterval);
+          autoPullInterval = setInterval(() => {
+            void autoSync();
+          }, 10000);
+
+          window.addEventListener('jfnotes:local-change', handleLocalChange);
+          
+          // Initialize WebSocket Sync for Tauri if configured
+          if (settingsStore.syncServerUrl) {
+              notesStore.initWebSocketSync(
+                settingsStore.syncServerUrl, 
+                () => localStorage.getItem('jwt')
+              );
+          }
+        } else {
+          // Initialize WebSocket Sync for Web App
+          // Use current origin as base
+          notesStore.initWebSocketSync(
+            window.location.origin, 
+            () => localStorage.getItem('jwt')
+          );
+
+          if (autoPullInterval) clearInterval(autoPullInterval);
+          autoPullInterval = setInterval(() => {
+            // Reload notes respecting current folder selection
+            const selected = foldersStore?.selectedFolder;
+            if (selected === 'uncategorised') {
+              void notesStore.loadNotes(undefined, true);
+            } else if (selected && typeof selected !== 'string') {
+              void notesStore.loadNotes(selected.id);
+            } else {
+              void notesStore.loadNotes();
+            }
+            void foldersStore.loadFolders();
+          }, 15000);
+        }
         
         console.log('Loading data...');
         await Promise.all([
@@ -316,12 +446,35 @@
         document.removeEventListener('mousemove', handleResizeMouseMove);
         document.removeEventListener('mouseup', handleResizeMouseUp);
       }
+
+      if (autoPullInterval) {
+        clearInterval(autoPullInterval);
+        autoPullInterval = null;
+      }
+      if (autoSyncTimeout) {
+        clearTimeout(autoSyncTimeout);
+        autoSyncTimeout = null;
+      }
+      if (isTauri && typeof window !== 'undefined') {
+        window.removeEventListener('jfnotes:local-change', handleLocalChange);
+      }
     };
+  });
+
+  $effect(() => {
+    if (!browser || !isTauri) return;
+    const url = settingsStore?.syncServerUrl?.trim();
+    if (!url || !notesStore?.initWebSocketSync) return;
+    notesStore.initWebSocketSync(url, () => localStorage.getItem('jwt'));
   });
 
   async function handleCreateNote() {
     if (!notesStore || !foldersStore) return;
-    const note = await notesStore.createNote(foldersStore.selectedFolder?.id);
+    // When in uncategorised view or all notes, create without folder
+    // When in a specific folder, create in that folder
+    const selected = foldersStore.selectedFolder;
+    const folderId = (selected && typeof selected !== 'string') ? selected.id : undefined;
+    const note = await notesStore.createNote(folderId);
     if (note) {
       notesStore.selectNote(note);
       justCreatedNote = true;
@@ -359,13 +512,63 @@
 
   async function handleCreateFolder() {
     if (!foldersStore) return;
-    const folder = await foldersStore.createFolder(null);
+    const parentId =
+      foldersStore.selectedFolder && foldersStore.selectedFolder !== 'uncategorised'
+        ? foldersStore.selectedFolder.id
+        : null;
+    const folder = await foldersStore.createFolder(parentId);
     if (folder) {
       editingFolderId = folder.id;
       editingFolderName = folder.name;
       justCreatedFolder = true;
     }
   }
+
+  type FolderNode = Folder & { children: FolderNode[] };
+  type FolderListItem = { folder: Folder; depth: number };
+
+  function buildFolderTree(folders: Folder[]): FolderNode[] {
+    const nodes = new Map<string, FolderNode>();
+    for (const folder of folders) {
+      nodes.set(folder.id, { ...folder, children: [] });
+    }
+
+    const roots: FolderNode[] = [];
+    for (const node of nodes.values()) {
+      const parentId = node.parent_id;
+      if (parentId && nodes.has(parentId)) {
+        nodes.get(parentId)!.children.push(node);
+      } else {
+        roots.push(node);
+      }
+    }
+
+    const sortNodes = (list: FolderNode[]) => {
+      list.sort((a, b) => a.name.localeCompare(b.name));
+      for (const item of list) {
+        if (item.children.length) sortNodes(item.children);
+      }
+    };
+    sortNodes(roots);
+
+    return roots;
+  }
+
+  function flattenFolderTree(nodes: FolderNode[], depth = 0, acc: FolderListItem[] = []) {
+    for (const node of nodes) {
+      acc.push({ folder: node, depth });
+      if (node.children.length) {
+        flattenFolderTree(node.children, depth + 1, acc);
+      }
+    }
+    return acc;
+  }
+
+  let flatFolders = $state<FolderListItem[]>([]);
+  $effect(() => {
+    const allFolders = foldersStore?.folders ?? [];
+    flatFolders = flattenFolderTree(buildFolderTree(allFolders));
+  });
 
   function handleEditFolder(folder: Folder) {
     editingFolderId = folder.id;
@@ -444,12 +647,30 @@
 
   // Debounced title save - save 500ms after user stops typing
   let titleSaveTimeout: ReturnType<typeof setTimeout> | null = null;
+  let lastSavedTitle: string | null = null;
+  let lastSavedNoteId: string | null = null;
   $effect(() => {
-    if (notesStore?.selectedNote?.title !== undefined) {
+    const currentNote = notesStore?.selectedNote;
+    if (!currentNote) {
+      lastSavedTitle = null;
+      lastSavedNoteId = null;
+      return;
+    }
+    
+    // If switching to a different note, update tracking without saving
+    if (currentNote.id !== lastSavedNoteId) {
+      lastSavedNoteId = currentNote.id;
+      lastSavedTitle = currentNote.title;
+      return;
+    }
+    
+    // Only trigger save if title actually changed from what we last saw
+    if (currentNote.title !== lastSavedTitle) {
       if (titleSaveTimeout) clearTimeout(titleSaveTimeout);
       titleSaveTimeout = setTimeout(() => {
-        if (notesStore?.selectedNote) {
+        if (notesStore?.selectedNote && notesStore.selectedNote.id === lastSavedNoteId) {
           notesStore.updateNote(notesStore.selectedNote);
+          lastSavedTitle = notesStore.selectedNote.title;
         }
       }, 500);
     }
@@ -566,7 +787,14 @@
     await notesStore.moveNote(draggedNote.id, folderId);
     
     // Reload notes for current view
-    await notesStore.loadNotes(foldersStore.selectedFolder?.id);
+    const selected = foldersStore?.selectedFolder;
+    if (selected === 'uncategorised') {
+      await notesStore.loadNotes(undefined, true);
+    } else if (selected && typeof selected !== 'string') {
+      await notesStore.loadNotes(selected.id);
+    } else {
+      await notesStore.loadNotes();
+    }
     
     draggedNote = null;
   }
@@ -684,12 +912,13 @@
         <div class="text-center text-gray-500 py-4">
           <div class="inline-block w-6 h-6 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
         </div>
-      {:else if foldersStore.folders.length > 0}
+      {:else if flatFolders.length > 0}
         <div class="px-4 pb-4 space-y-1">
-          {#each foldersStore.folders as folder}
+          {#each flatFolders as item}
+            {@const folder = item.folder}
             <div class="group relative">
               {#if editingFolderId === folder.id}
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2" style={`padding-left: ${12 + item.depth * 16}px; padding-right: 12px;`}>
                   <input
                     bind:this={folderInput}
                     type="text"
@@ -702,7 +931,8 @@
                 </div>
               {:else}
                 <div
-                  class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors flex items-center justify-between cursor-pointer {foldersStore.selectedFolder?.id === folder.id ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700'} {dragOverFolder === folder.id ? 'ring-2 ring-indigo-400 bg-indigo-50' : ''}"
+                  class="w-full text-left py-2 rounded-lg hover:bg-gray-100 transition-colors flex items-center justify-between cursor-pointer {foldersStore.selectedFolder?.id === folder.id ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700'} {dragOverFolder === folder.id ? 'ring-2 ring-indigo-400 bg-indigo-50' : ''}"
+                  style={`padding-left: ${12 + item.depth * 16}px; padding-right: 12px;`}
                   onclick={() => handleSelectFolder(folder)}
                   ondragover={(e) => handleFolderDragOver(e, folder.id)}
                   ondragleave={(e) => handleFolderDragLeave(e)}
@@ -952,11 +1182,11 @@
       </div>
 
       <div class="flex-1 overflow-hidden">
-        <WysiwygEditor
+        <CollaborativeEditor
           bind:this={editorElement}
-          value={notesStore.selectedNote.content}
           noteId={notesStore.selectedNote.id}
-          onchange={handleContentChange}
+          ydoc={notesStore.getYjsDoc(notesStore.selectedNote.id)}
+          initialContent={notesStore.selectedNote.content}
           enableAutoComplete={settingsStore?.enableAutoComplete ?? true}
         />
       </div>

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = { version = "0.7", features = ["macros", "json"] }
+axum = { version = "0.7", features = ["macros", "json", "ws"] }
 axum-extra = { version = "0.9", features = ["typed-header"] }
 tower = "0.5"
 tower-http = { version = "0.5", features = ["cors", "trace", "fs", "compression-br", "compression-gzip"] }
@@ -12,6 +12,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_with = "3.11"
 tokio = { version = "1.39", features = ["full"] }
+tokio-stream = "0.1"
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "macros"] }
 uuid = { version = "1", features = ["serde", "v4"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -21,3 +22,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 anyhow = "1.0"
 thiserror = "1.0"
+base64 = "0.22"
+futures = "0.3"
+dashmap = "6"
+yrs = "0.19"
+regex = "1"

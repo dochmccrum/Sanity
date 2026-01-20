@@ -67,6 +67,8 @@ Build the desktop application:
 npm run tauri build
 ```
 
+Note: Docker builds do not use `src-tauri/`. The container includes only the web UI (`src/`) and API (`server/`).
+
 ## Project Structure
 
 ```
