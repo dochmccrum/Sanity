@@ -81,7 +81,7 @@ export class TauriAdapter implements NoteRepository {
   }
 
   async listNotes(folderId?: string | null): Promise<Note[]> {
-    const notes = folderId ? await getNotesByFolder(folderId) : await getAllNotes();
+    const notes = folderId === undefined ? await getAllNotes() : await getNotesByFolder(folderId);
     return notes.map(mapToShared);
   }
 

@@ -55,7 +55,7 @@ export async function getFolder(id: string): Promise<Folder | null> {
 export async function getFoldersByParent(parentId: string | null = null): Promise<Folder[]> {
   if (isTauri) {
     return await tauriInvoke<Folder[]>('get_folders_by_parent', { 
-      parentId: parentId || undefined 
+      parent_id: parentId || undefined 
     });
   }
   const query = parentId === null ? 'null' : parentId;

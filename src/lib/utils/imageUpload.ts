@@ -85,8 +85,8 @@ export async function uploadImage(file: File): Promise<string> {
 
     // Upload to Tauri backend
     const result = await tauriInvoke<ImageUploadResult>('save_image_asset', {
-      base64Data: scaledBase64,
-      fileExtension: extension
+      base64_data: scaledBase64,
+      file_extension: extension
     });
 
     return result.uri;
@@ -125,8 +125,8 @@ export async function uploadImageFromDataUrl(dataUrl: string): Promise<string> {
     }
 
     const result = await tauriInvoke<ImageUploadResult>('save_image_asset', {
-      base64Data: dataUrl,
-      fileExtension: extension
+      base64_data: dataUrl,
+      file_extension: extension
     });
 
     return result.uri;
