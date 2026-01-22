@@ -30,22 +30,9 @@ export class TauriAdapter implements NoteRepository {
   private wsSyncProvider: WebSocketSyncProvider | null = null;
 
   constructor() {
-    this.yjsDocManager = getYjsDocManager({
-      onLocalUpdate: (noteId, update) => {
-        if (!this.wsSyncProvider) {
-          this.wsSyncProvider = getWebSocketSyncProvider();
-        }
-        this.wsSyncProvider?.pushUpdate(noteId, update);
-        // Also save to Tauri's local storage immediately for persistence
-        const doc = this.yjsDocManager.getDoc(noteId);
-        tauriSaveCrdtState(noteId, this.yjsDocManager.getState(noteId), this.yjsDocManager.getStateVector(noteId));
-      },
-      onContentChange: (noteId, content) => {
-        // This callback is usually handled by Svelte stores reacting to Yjs changes
-        // For Tauri, we might want to update the note's content in the local DB
-        // This would require a Tauri command. For now, we rely on the overall sync
-      }
-    });
+    // We get the global manager but don't attach callbacks here.
+    // The notesStore manages the lifecycle of document updates and sync.
+    this.yjsDocManager = getYjsDocManager();
   }
 
   private getProvider(): WebSocketSyncProvider | null {
