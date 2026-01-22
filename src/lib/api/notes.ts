@@ -74,7 +74,7 @@ export async function getNote(id: string): Promise<Note | null> {
  * Get notes by folder ID (pass undefined/null for root-level notes)
  */
 export async function getNotesByFolder(folderId?: string | null): Promise<NoteSummary[]> {
-  return tauriInvoke<NoteSummary[]>('get_notes_by_folder', { folder_id: folderId });
+  return tauriInvoke<NoteSummary[]>('get_notes_by_folder', { folderId: folderId });
 }
 
 /**
@@ -98,7 +98,7 @@ export async function deleteNote(id: string): Promise<boolean> {
  * Move a note to a different folder
  */
 export async function moveNote(id: string, folderId: string | null): Promise<void> {
-  return tauriInvoke<void>('move_note', { id, folder_id: folderId });
+  return tauriInvoke<void>('move_note', { id, folderId: folderId });
 }
 
 /**
@@ -130,8 +130,8 @@ export async function saveImageAsset(
   fileExtension: string
 ): Promise<AssetResult> {
   return tauriInvoke<AssetResult>('save_image_asset', { 
-    base64_data: base64Data, 
-    file_extension: fileExtension 
+    base64Data: base64Data, 
+    fileExtension: fileExtension 
   });
 }
 
@@ -146,7 +146,7 @@ export async function saveImageBytes(
 ): Promise<AssetResult> {
   return tauriInvoke<AssetResult>('save_image_bytes', { 
     data, 
-    file_extension: fileExtension 
+    fileExtension: fileExtension 
   });
 }
 
@@ -154,7 +154,7 @@ export async function saveImageBytes(
  * Delete an asset by its ID
  */
 export async function deleteAsset(assetId: string): Promise<boolean> {
-  return tauriInvoke<boolean>('delete_asset', { asset_id: assetId });
+  return tauriInvoke<boolean>('delete_asset', { assetId: assetId });
 }
 
 /**
@@ -242,9 +242,9 @@ export async function saveCrdtState(
   stateVector: Uint8Array
 ): Promise<CrdtState> {
   return tauriInvoke<CrdtState>('save_crdt_state', {
-    note_id: noteId,
-    ydoc_state: Array.from(ydocState),
-    state_vector: Array.from(stateVector),
+    noteId: noteId,
+    ydocState: Array.from(ydocState),
+    stateVector: Array.from(stateVector),
   });
 }
 
@@ -252,7 +252,7 @@ export async function saveCrdtState(
  * Get CRDT state for a note
  */
 export async function getCrdtState(noteId: string): Promise<CrdtState | null> {
-  return tauriInvoke<CrdtState | null>('get_crdt_state', { note_id: noteId });
+  return tauriInvoke<CrdtState | null>('get_crdt_state', { noteId: noteId });
 }
 
 /**
@@ -266,14 +266,14 @@ export async function getAllCrdtStates(): Promise<CrdtState[]> {
  * Get CRDT states for specific notes
  */
 export async function getCrdtStatesForNotes(noteIds: string[]): Promise<CrdtState[]> {
-  return tauriInvoke<CrdtState[]>('get_crdt_states_for_notes', { note_ids: noteIds });
+  return tauriInvoke<CrdtState[]>('get_crdt_states_for_notes', { noteIds: noteIds });
 }
 
 /**
  * Delete CRDT state for a note
  */
 export async function deleteCrdtState(noteId: string): Promise<boolean> {
-  return tauriInvoke<boolean>('delete_crdt_state', { note_id: noteId });
+  return tauriInvoke<boolean>('delete_crdt_state', { noteId: noteId });
 }
 
 /**
@@ -288,7 +288,7 @@ export async function getCrdtStatesUpdatedSince(since?: string | null): Promise<
  */
 export async function applyCrdtUpdate(noteId: string, update: Uint8Array): Promise<void> {
   return tauriInvoke<void>('apply_crdt_update', {
-    note_id: noteId,
+    noteId: noteId,
     update: Array.from(update),
   });
 }
