@@ -132,7 +132,14 @@
       settingsStore?.refreshLastSync?.();
 
       // Reload notes to reflect any server changes
-      await notesStore?.loadNotes?.();
+      const selected = foldersStore?.selectedFolder;
+      if (selected === 'uncategorised') {
+        await notesStore?.loadNotes?.(undefined, true);
+      } else if (selected && typeof selected !== 'string') {
+        await notesStore?.loadNotes?.(selected.id);
+      } else {
+        await notesStore?.loadNotes?.();
+      }
     } finally {
       syncInProgress = false;
     }
