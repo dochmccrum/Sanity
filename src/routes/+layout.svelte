@@ -13,8 +13,10 @@
 
 <div class="fixed inset-0 flex flex-col overflow-hidden bg-white text-gray-900 font-sans" style="transform: translateZ(0);">
 	{#if isTauri}
-		<div class="absolute inset-0 pointer-events-none ring-1 ring-gray-200 ring-inset z-[9999]"></div>
-		<TitleBar />
+		<div class="hidden md:block absolute inset-0 pointer-events-none ring-1 ring-gray-200 ring-inset z-[9999]"></div>
+		<div class="hidden md:block shrink-0">
+			<TitleBar />
+		</div>
 	{/if}
 	<div class="flex-1 overflow-hidden relative">
 		{@render children()}

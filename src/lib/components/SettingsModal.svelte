@@ -54,10 +54,17 @@
 </script>
 
 {#if open}
-  <div class="fixed inset-0 flex items-center justify-center z-50" style="background-color: rgba(0, 0, 0, 0.1);" onmousedown={handleBackdropClick} transition:fade={{ duration: 200 }}>
-    <div class="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4 flex flex-col max-h-[90vh]" transition:scale={{ duration: 200, start: 0.95 }}>
-      <div class="border-b border-gray-200 p-6">
+  <div class="fixed inset-0 flex items-center justify-center z-50 bg-black/10" onmousedown={handleBackdropClick} transition:fade={{ duration: 200 }}>
+    <div class="bg-white shadow-xl w-full h-full flex flex-col md:rounded-lg md:max-w-lg md:mx-4 md:h-auto md:max-h-[90vh]" transition:scale={{ duration: 200, start: 0.95 }}>
+      <div class="border-b border-gray-200 p-6 flex justify-between items-center">
         <h2 class="text-2xl font-bold text-gray-900">Settings</h2>
+        {#if !isTauri}
+          <button class="md:hidden p-2 text-gray-500" onclick={() => open = false}>
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        {/if}
       </div>
 
       <div class="p-6 space-y-6 overflow-y-auto flex-1">

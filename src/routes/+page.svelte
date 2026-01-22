@@ -45,6 +45,8 @@
   let dragOverFolder: string | null = $state(null);
   let expandedNotePreview = $state<string | null>(null);
   let syncInProgress = $state(false);
+  let isMobile = $state(false);
+  let activeMobilePane = $state<'folders' | 'notes' | 'editor'>('folders');
 
   // Auto-sync (Tauri only): debounce pushes after edits + periodic pulls.
   let autoSyncTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -56,6 +58,15 @@
     const tmp = document.createElement('div');
     tmp.innerHTML = html;
     return tmp.textContent || tmp.innerText || '';
+  }
+
+  function checkMobile() {
+    isMobile = window.innerWidth < 768;
+    if (!isMobile) {
+      // Reset sidebar states when going to desktop
+      leftSidebarCollapsed = false;
+      rightSidebarCollapsed = false;
+    }
   }
 
   async function handleSyncNow() {
@@ -271,6 +282,11 @@
   onMount(() => {
     // Setup event listeners for resize functionality
     if (typeof window !== 'undefined') {
+      checkMobile();
+      window.addEventListener('resize', () => {
+        handleResizeMouseMove; // existing (needs proper wrap if complex, but here it is just a fn ref)
+        checkMobile();
+      });
       document.addEventListener('mousemove', handleResizeMouseMove);
       document.addEventListener('mouseup', handleResizeMouseUp);
     }
@@ -435,6 +451,7 @@
         unlistenBackendDrop();
       }
       if (typeof window !== 'undefined') {
+        window.removeEventListener('resize', checkMobile);
         document.removeEventListener('mousemove', handleResizeMouseMove);
         document.removeEventListener('mouseup', handleResizeMouseUp);
       }
@@ -470,6 +487,7 @@
     if (note) {
       notesStore.selectNote(note);
       justCreatedNote = true;
+      if (isMobile) activeMobilePane = 'editor';
     }
   }
 
@@ -625,6 +643,7 @@
       // Reload notes filtered by the selected folder
       notesStore.loadNotes(folder?.id);
     }
+    if (isMobile) activeMobilePane = 'notes';
   }
 
   function handleContentChange(value: string) {
@@ -814,9 +833,14 @@
     </div>
   </div>
 {:else}
-<div class="flex h-full overflow-hidden bg-gray-50" class:cursor-col-resize={isDraggingLeft || isDraggingRight}>
-  <!-- Left Sidebar -->
-  <aside bind:this={leftSidebarElement} class="border-r border-gray-200 bg-white flex flex-col {isDraggingLeft ? '' : 'transition-all'} {leftSidebarCollapsed ? 'w-0 -ml-px' : ''} overflow-hidden" style="width: {leftSidebarCollapsed ? '0px' : leftSidebarWidth + 'px'}">
+<div class="flex h-full overflow-hidden bg-gray-50 flex-col md:flex-row" class:cursor-col-resize={isDraggingLeft || isDraggingRight}>
+  <!-- Left Sidebar (Folders) -->
+  <aside 
+    bind:this={leftSidebarElement} 
+    class="border-r border-gray-200 bg-white flex flex-col {isDraggingLeft ? '' : 'transition-all'} {leftSidebarCollapsed ? 'w-0 -ml-px' : ''} overflow-hidden" 
+    style="width: {isMobile ? (activeMobilePane === 'folders' ? '100%' : '0px') : (leftSidebarCollapsed ? '0px' : leftSidebarWidth + 'px')}"
+    class:hidden={isMobile && activeMobilePane !== 'folders'}
+  >
     <div class="p-4 border-b border-gray-200">
       <div class="flex items-center justify-between">
         <div class="flex gap-2">
@@ -847,15 +871,17 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
         </button>
-        <button
-            class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            onclick={() => (leftSidebarCollapsed = !leftSidebarCollapsed)}
-            title={leftSidebarCollapsed ? "Expand" : "Collapse"}
-          >
-            <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={leftSidebarCollapsed ? "M9 5l7 7-7 7" : "M15 19l-7-7 7-7"} />
-            </svg>
-          </button>
+        {#if !isMobile}
+          <button
+              class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              onclick={() => (leftSidebarCollapsed = !leftSidebarCollapsed)}
+              title={leftSidebarCollapsed ? "Expand" : "Collapse"}
+            >
+              <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={leftSidebarCollapsed ? "M9 5l7 7-7 7" : "M15 19l-7-7 7-7"} />
+              </svg>
+            </button>
+        {/if}
       </div>
     </div>
    </div>
@@ -939,7 +965,7 @@
                     </svg>
                     <span class="truncate">{folder.name}</span>
                   </span>
-                  <div class="opacity-0 group-hover:opacity-100 flex gap-1 pointer-events-auto">
+                  <div class="flex gap-1 pointer-events-auto transition-opacity" class:opacity-0={!isMobile} class:group-hover:opacity-100={!isMobile}>
                     <div
                       class="p-1 hover:bg-gray-200 rounded cursor-pointer"
                       onclick={(e) => { e.stopPropagation(); handleEditFolder(folder); }}
@@ -971,7 +997,7 @@
   </aside>
 
   <!-- Left Sidebar Expand Button (when collapsed) -->
-  {#if leftSidebarCollapsed}
+  {#if leftSidebarCollapsed && !isMobile}
     <button
       class="w-8 h-12 bg-white border border-gray-200 rounded-r-lg flex items-center justify-center hover:bg-indigo-50 transition-colors shadow-sm"
       onclick={() => (leftSidebarCollapsed = false)}
@@ -985,7 +1011,7 @@
   {/if}
 
   <!-- Left Sidebar Resize Handle -->
-  {#if !leftSidebarCollapsed}
+  {#if !leftSidebarCollapsed && !isMobile}
     <div
       class="w-1 bg-gray-200 hover:bg-indigo-500 cursor-col-resize transition-colors {isDraggingLeft ? 'bg-indigo-500' : ''}"
       onmousedown={handleLeftResizeStart}
@@ -994,8 +1020,13 @@
     />
   {/if}
 
-  <!-- Right Sidebar -->
-  <aside bind:this={rightSidebarElement} class="border-r border-gray-200 bg-white flex flex-col {isDraggingRight ? '' : 'transition-all'} {rightSidebarCollapsed ? 'w-0 -mr-px' : ''} overflow-hidden" style="width: {rightSidebarCollapsed ? '0px' : rightSidebarWidth + 'px'}">
+  <!-- Right Sidebar (Notes) -->
+  <aside 
+    bind:this={rightSidebarElement} 
+    class="border-r border-gray-200 bg-white flex flex-col {isDraggingRight ? '' : 'transition-all'} {rightSidebarCollapsed ? 'w-0 -mr-px' : ''} overflow-hidden" 
+    style="width: {isMobile ? (activeMobilePane === 'notes' ? '100%' : '0px') : (rightSidebarCollapsed ? '0px' : rightSidebarWidth + 'px')}"
+    class:hidden={isMobile && activeMobilePane !== 'notes'}
+  >
     <div class="p-4 border-b border-gray-200">
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-gray-900">Notes</h2>
@@ -1052,7 +1083,10 @@
             <div class="group relative">
               <button
                 class="w-full text-left p-4 rounded-lg border border-gray-200 hover:border-indigo-400 hover:bg-indigo-50 transition-all {notesStore.selectedNote?.id === note.id ? 'bg-indigo-50 border-indigo-400' : 'bg-white'} {draggedNote?.id === note.id ? 'opacity-50' : ''}"
-                onclick={() => notesStore.selectNote(note)}
+                onclick={() => {
+                  notesStore.selectNote(note);
+                  if (isMobile) activeMobilePane = 'editor';
+                }}
                 draggable="true"
                 ondragstart={(e) => handleNoteDragStart(e, note)}
                 ondragend={handleNoteDragEnd}
@@ -1108,7 +1142,9 @@
                 </div>
               </button>
               <button
-                class="absolute top-2 right-2 p-2 rounded-lg bg-white/90 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                class="absolute top-2 right-2 p-2 rounded-lg bg-white/90 hover:bg-red-50 transition-opacity shadow-sm"
+                class:opacity-0={!isMobile}
+                class:group-hover:opacity-100={!isMobile}
                 onclick={(e) => {
                   e.stopPropagation();
                   handleDeleteNoteClick(note);
@@ -1127,7 +1163,7 @@
   </aside>
 
   <!-- Right Sidebar Expand Button (when collapsed) -->
-  {#if rightSidebarCollapsed}
+  {#if rightSidebarCollapsed && !isMobile}
     <button
       class="w-8 h-12 bg-white border border-gray-200 rounded-l-lg flex items-center justify-center hover:bg-indigo-50 transition-colors shadow-sm"
       onclick={() => (rightSidebarCollapsed = false)}
@@ -1141,7 +1177,7 @@
   {/if}
 
   <!-- Right Sidebar Resize Handle -->
-  {#if !rightSidebarCollapsed}
+  {#if !rightSidebarCollapsed && !isMobile}
     <div
       class="w-1 bg-gray-200 hover:bg-indigo-500 cursor-col-resize transition-colors {isDraggingRight ? 'bg-indigo-500' : ''}"
       onmousedown={handleRightResizeStart}
@@ -1152,7 +1188,8 @@
 
   <!-- Editor Area -->
   <main 
-    class="flex-1 flex flex-col bg-white"
+    class="flex-1 flex flex-col bg-white overflow-hidden"
+    class:hidden={isMobile && activeMobilePane !== 'editor'}
     ondragover={(e) => {
       // Allow file drops in editor area
       if (e.dataTransfer?.types.includes('Files')) {
@@ -1162,11 +1199,18 @@
     }}
   >
     {#if notesStore.selectedNote}
-      <div class="border-b border-gray-200 p-4">
+      <div class="border-b border-gray-200 p-4 flex items-center gap-2">
+        {#if isMobile}
+          <button class="p-2 -ml-2 text-gray-500 hover:bg-gray-100 rounded-lg" onclick={() => activeMobilePane = 'notes'}>
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+        {/if}
         <input
           bind:this={titleInput}
           type="text"
-          class="w-full text-2xl font-bold bg-transparent border-none outline-none"
+          class="flex-1 text-xl md:text-2xl font-bold bg-transparent border-none outline-none"
           placeholder="Note title..."
           bind:value={notesStore.selectedNote.title}
           onkeydown={handleTitleKeydown}
@@ -1183,17 +1227,55 @@
         />
       </div>
     {:else}
-      <div class="flex-1 flex items-center justify-center text-gray-400">
+      <div class="flex-1 flex items-center justify-center text-gray-400 p-4">
         <div class="text-center">
-          <svg class="w-24 h-24 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-16 h-16 md:w-24 md:h-24 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
           </svg>
-          <p class="text-xl font-medium">No note selected</p>
-          <p class="mt-2">Select a note or create a new one</p>
+          <p class="text-lg md:text-xl font-medium">No note selected</p>
+          <p class="mt-2 text-sm md:text-base">Select a note or create a new one</p>
+          {#if isMobile}
+            <button class="btn btn-primary mt-6" onclick={() => activeMobilePane = 'folders'}>
+              View Folders
+            </button>
+          {/if}
         </div>
       </div>
     {/if}
   </main>
+
+  <!-- Mobile Bottom Navigation -->
+  {#if isMobile}
+    <nav class="flex border-t border-gray-200 bg-white shrink-0" style="padding-bottom: env(safe-area-inset-bottom); height: calc(4rem + env(safe-area-inset-bottom));">
+      <button 
+        class="flex-1 flex flex-col items-center justify-center gap-1 {activeMobilePane === 'folders' ? 'text-indigo-600' : 'text-gray-500'}"
+        onclick={() => activeMobilePane = 'folders'}
+      >
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+        </svg>
+        <span class="text-[10px] font-medium">Folders</span>
+      </button>
+      <button 
+        class="flex-1 flex flex-col items-center justify-center gap-1 {activeMobilePane === 'notes' ? 'text-indigo-600' : 'text-gray-500'}"
+        onclick={() => activeMobilePane = 'notes'}
+      >
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+        <span class="text-[10px] font-medium">Notes</span>
+      </button>
+      <button 
+        class="flex-1 flex flex-col items-center justify-center gap-1 {activeMobilePane === 'editor' ? 'text-indigo-600' : 'text-gray-500'}"
+        onclick={() => activeMobilePane = 'editor'}
+      >
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+        </svg>
+        <span class="text-[10px] font-medium">Editor</span>
+      </button>
+    </nav>
+  {/if}
 </div>
 {/if}
 
