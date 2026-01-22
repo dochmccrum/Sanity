@@ -1043,7 +1043,7 @@
           <div class="inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
           <p class="mt-2">Initializing...</p>
         </div>
-      {:else if notesStore.loading}
+      {:else if notesStore.loading && notesStore.notes.length === 0}
         <div class="text-center text-gray-500 py-8">
           <div class="inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
           <p class="mt-2">Loading notes...</p>
@@ -1062,7 +1062,7 @@
           <p class="text-sm mt-1">Create your first note to get started</p>
         </div>
       {:else}
-        <div class="space-y-2">
+        <div class="space-y-2 transition-opacity duration-200" class:opacity-50={notesStore.loading}>
           {#each notesStore.notes as note}
             <div class="group relative">
               <button
