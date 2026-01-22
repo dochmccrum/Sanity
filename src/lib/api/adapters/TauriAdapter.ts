@@ -32,6 +32,9 @@ export class TauriAdapter implements NoteRepository {
   constructor() {
     this.yjsDocManager = getYjsDocManager({
       onLocalUpdate: (noteId, update) => {
+        if (!this.wsSyncProvider) {
+          this.wsSyncProvider = getWebSocketSyncProvider();
+        }
         this.wsSyncProvider?.pushUpdate(noteId, update);
         // Also save to Tauri's local storage immediately for persistence
         const doc = this.yjsDocManager.getDoc(noteId);
@@ -43,41 +46,13 @@ export class TauriAdapter implements NoteRepository {
         // This would require a Tauri command. For now, we rely on the overall sync
       }
     });
+  }
 
-    // Initialize WebSocketSyncProvider. In Tauri, we connect to the server's WS endpoint.
-    // Assuming the Tauri backend also provides the necessary authentication token if needed.
-    // For now, hardcode URL or retrieve from environment/config.
-    // The web app might get this from window.location, but Tauri needs explicit config.
-    // This is a placeholder, a proper Tauri app would have a config system.
-    const serverUrl = 'ws://127.0.0.1:8080/api/ws'; // Adjust if your server runs on a different address
-
-    this.wsSyncProvider = getWebSocketSyncProvider({
-      serverUrl: serverUrl,
-      getAuthToken: () => {
-        // In a real Tauri app, you'd fetch the auth token from secure storage
-        // or a Tauri command that gets it from the Rust backend.
-        // For now, return null as per the existing server's TODO
-        return null; 
-      },
-      onConnectionChange: (state) => {
-        console.log('WS connection state:', state);
-        // You might want to update a Svelte store here to reflect connection status in UI
-      },
-      onSyncComplete: (noteIds) => {
-        console.log('Full sync complete for notes:', noteIds);
-        // After a full sync, ensure local Tauri storage is updated with the latest states
-        for (const noteId of noteIds) {
-          const ydocState = this.yjsDocManager.getState(noteId);
-          const stateVector = this.yjsDocManager.getStateVector(noteId);
-          tauriSaveCrdtState(noteId, ydocState, stateVector);
-        }
-      },
-      onSyncError: (error) => {
-        console.error('WS sync error:', error);
-      }
-    });
-
-    this.wsSyncProvider?.connect();
+  private getProvider(): WebSocketSyncProvider | null {
+    if (!this.wsSyncProvider) {
+      this.wsSyncProvider = getWebSocketSyncProvider();
+    }
+    return this.wsSyncProvider;
   }
 
   async listNotes(folderId?: string | null): Promise<Note[]> {
@@ -101,7 +76,7 @@ export class TauriAdapter implements NoteRepository {
       is_canvas: note.is_canvas ?? false,
     });
     // After saving a note's metadata, push it via WebSocket
-    this.wsSyncProvider?.pushMetadata({ 
+    this.getProvider()?.pushMetadata({ 
       id: saved.id, 
       title: saved.title, 
       content: saved.content, 
@@ -111,16 +86,16 @@ export class TauriAdapter implements NoteRepository {
       updated_at: saved.updated_at 
     });
     // Also ensure we're subscribed to it
-    this.wsSyncProvider?.subscribeToNote(saved.id);
+    this.getProvider()?.subscribeToNote(saved.id);
     return mapToShared(saved);
   }
 
   async deleteNote(id: string): Promise<boolean> {
     const deleted = await tauriDeleteNote(id);
     if (deleted) {
-      this.wsSyncProvider?.pushMetadata({ id, is_deleted: true, updated_at: new Date().toISOString() } as NoteMetadataUpdate);
+      this.getProvider()?.pushMetadata({ id, is_deleted: true, updated_at: new Date().toISOString() } as NoteMetadataUpdate);
       this.yjsDocManager.destroyDoc(id); // Clean up Yjs doc
-      this.wsSyncProvider?.unsubscribeFromNote(id);
+      this.getProvider()?.unsubscribeFromNote(id);
     }
     return deleted;
   }
@@ -129,7 +104,7 @@ export class TauriAdapter implements NoteRepository {
     await tauriMoveNote(id, folderId);
     const note = await this.getNote(id);
     if (note) {
-      this.wsSyncProvider?.pushMetadata({ 
+      this.getProvider()?.pushMetadata({ 
         id: note.id, 
         title: note.title,
         content: note.content,
@@ -214,7 +189,7 @@ export class TauriAdapter implements NoteRepository {
     // Assuming we have a way to get metadata for all notes without fetching one by one
     // For now, this part might need further refinement based on how metadata is fetched.
     // A simplified approach is to just send all note IDs and let server figure out diffs.
-    this.wsSyncProvider?.requestSync(allNoteIds, []); // Send empty metadata initially
+    this.getProvider()?.requestSync(allNoteIds, []); // Send empty metadata initially
 
     return results.map(r => ({
       note_id: r.note_id,
@@ -244,7 +219,7 @@ export class TauriAdapter implements NoteRepository {
       updated_at: m.updated_at,
     }));
 
-    this.wsSyncProvider?.requestSync(allNoteIds, metadataUpdates);
+    this.getProvider()?.requestSync(allNoteIds, metadataUpdates);
 
     // Return an empty response as the actual sync result comes via WebSocket callback
     return {

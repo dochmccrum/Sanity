@@ -55,12 +55,12 @@
 
 {#if open}
   <div class="fixed inset-0 flex items-center justify-center z-50" style="background-color: rgba(0, 0, 0, 0.1);" onmousedown={handleBackdropClick} transition:fade={{ duration: 200 }}>
-    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4" transition:scale={{ duration: 200, start: 0.95 }}>
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4 flex flex-col max-h-[90vh]" transition:scale={{ duration: 200, start: 0.95 }}>
       <div class="border-b border-gray-200 p-6">
         <h2 class="text-2xl font-bold text-gray-900">Settings</h2>
       </div>
 
-      <div class="p-6 space-y-6">
+      <div class="p-6 space-y-6 overflow-y-auto flex-1">
         <!-- Auto-focus Title Setting -->
         <div class="flex items-start gap-4">
           <div class="flex-1">

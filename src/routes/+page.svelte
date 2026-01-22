@@ -915,12 +915,12 @@
         <div class="text-center text-gray-500 py-4">
           <div class="inline-block w-6 h-6 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
         </div>
-      {:else if foldersStore.loading}
+      {:else if foldersStore.loading && flatFolders.length === 0}
         <div class="text-center text-gray-500 py-4">
           <div class="inline-block w-6 h-6 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
         </div>
       {:else if flatFolders.length > 0}
-        <div class="px-4 pb-4 space-y-1">
+        <div class="px-4 pb-4 space-y-1 transition-opacity duration-200" class:opacity-50={foldersStore.loading}>
           {#each flatFolders as item}
             {@const folder = item.folder}
             <div class="group relative">
