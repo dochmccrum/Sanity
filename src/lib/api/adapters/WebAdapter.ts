@@ -25,7 +25,11 @@ interface ServerCrdtState {
 }
 
 export class WebAdapter implements NoteRepository {
-  constructor(private readonly baseUrl = '') {}
+  constructor(private readonly baseUrlInput: string | (() => string) = '') {}
+
+  private get baseUrl(): string {
+    return typeof this.baseUrlInput === 'function' ? this.baseUrlInput() : this.baseUrlInput;
+  }
 
   async listNotes(folderId?: string | null): Promise<Note[]> {
     const query = typeof folderId === 'undefined' ? '' : `?folder_id=${encodeURIComponent(folderId ?? 'null')}`;

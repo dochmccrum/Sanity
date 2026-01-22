@@ -1,7 +1,14 @@
 import { env } from '$env/dynamic/public';
 
 const isTauri = typeof window !== 'undefined' && (window as any).__TAURI__;
-const baseUrl = env.PUBLIC_API_BASE_URL ?? '';
+
+function getBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem('jfnotes_sync_server_url');
+    if (saved) return saved.replace(/\/+$/, '');
+  }
+  return env.PUBLIC_API_BASE_URL || '';
+}
 
 async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const { invoke } = await import('@tauri-apps/api/core');
@@ -21,6 +28,8 @@ export interface Folder {
   name: string;
   parent_id: string | null;
   created_at: string;
+  updated_at: string;
+  is_deleted: boolean;
 }
 
 export interface FolderInput {
@@ -36,7 +45,7 @@ export async function getAllFolders(): Promise<Folder[]> {
   if (isTauri) {
     return await tauriInvoke<Folder[]>('get_all_folders');
   }
-  return fetchJson<Folder[]>(`${baseUrl}/api/folders`);
+  return fetchJson<Folder[]>(`${getBaseUrl()}/api/folders`);
 }
 
 /**
@@ -46,7 +55,7 @@ export async function getFolder(id: string): Promise<Folder | null> {
   if (isTauri) {
     return await tauriInvoke<Folder | null>('get_folder', { id });
   }
-  return fetchJson<Folder>(`${baseUrl}/api/folders/${id}`);
+  return fetchJson<Folder>(`${getBaseUrl()}/api/folders/${id}`);
 }
 
 /**
@@ -55,11 +64,11 @@ export async function getFolder(id: string): Promise<Folder | null> {
 export async function getFoldersByParent(parentId: string | null = null): Promise<Folder[]> {
   if (isTauri) {
     return await tauriInvoke<Folder[]>('get_folders_by_parent', { 
-      parent_id: parentId || undefined 
+      parentId: parentId || undefined 
     });
   }
   const query = parentId === null ? 'null' : parentId;
-  return fetchJson<Folder[]>(`${baseUrl}/api/folders?parent_id=${encodeURIComponent(query ?? '')}`);
+  return fetchJson<Folder[]>(`${getBaseUrl()}/api/folders?parent_id=${encodeURIComponent(query ?? '')}`);
 }
 
 /**
@@ -69,7 +78,7 @@ export async function saveFolder(folder: FolderInput): Promise<Folder> {
   if (isTauri) {
     return await tauriInvoke<Folder>('save_folder', { folder });
   }
-  return fetchJson<Folder>(`${baseUrl}/api/folders`, {
+  return fetchJson<Folder>(`${getBaseUrl()}/api/folders`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(folder),
@@ -83,7 +92,27 @@ export async function deleteFolder(id: string): Promise<void> {
   if (isTauri) {
     return await tauriInvoke<void>('delete_folder', { id });
   }
-  await fetchJson(`${baseUrl}/api/folders/${id}`, { method: 'DELETE' });
+  await fetchJson(`${getBaseUrl()}/api/folders/${id}`, { method: 'DELETE' });
+}
+
+// ============================================================================
+// Sync helpers (Tauri-only)
+// ============================================================================
+
+/**
+ * Get locally updated folders since a timestamp (RFC3339). Includes deleted folders.
+ */
+export async function getFoldersUpdatedSince(since?: string | null): Promise<Folder[]> {
+  if (!isTauri) return [];
+  return tauriInvoke<Folder[]>('get_folders_updated_since', { since });
+}
+
+/**
+ * Apply folders pulled from the remote server.
+ */
+export async function applySyncFolders(folders: Folder[]): Promise<void> {
+  if (!isTauri) return;
+  return tauriInvoke<void>('apply_sync_folders', { folders });
 }
 
 /**

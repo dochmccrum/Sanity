@@ -382,22 +382,7 @@
           }, 10000);
 
           window.addEventListener('jfnotes:local-change', handleLocalChange);
-          
-          // Initialize WebSocket Sync for Tauri if configured
-          if (settingsStore.syncServerUrl) {
-              notesStore.initWebSocketSync(
-                settingsStore.syncServerUrl, 
-                () => localStorage.getItem('jwt')
-              );
-          }
         } else {
-          // Initialize WebSocket Sync for Web App
-          // Use current origin as base
-          notesStore.initWebSocketSync(
-            window.location.origin, 
-            () => localStorage.getItem('jwt')
-          );
-
           if (autoPullInterval) clearInterval(autoPullInterval);
           autoPullInterval = setInterval(() => {
             // Reload notes respecting current folder selection
@@ -469,8 +454,8 @@
   });
 
   $effect(() => {
-    if (!browser || !isTauri) return;
-    const url = settingsStore?.syncServerUrl?.trim();
+    if (!browser) return;
+    const url = (isTauri ? settingsStore?.syncServerUrl : (settingsStore?.syncServerUrl || window.location.origin))?.trim();
     if (!url || !notesStore?.initWebSocketSync) return;
     notesStore.initWebSocketSync(url, () => localStorage.getItem('jwt'));
   });
