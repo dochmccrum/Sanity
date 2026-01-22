@@ -808,7 +808,7 @@
 </script>
 
 {#if !initialized}
-  <div class="flex h-screen items-center justify-center bg-gray-50">
+  <div class="flex h-full items-center justify-center bg-gray-50">
     <div class="text-center">
       {#if initError}
         <div class="bg-red-50 border border-red-200 rounded-lg p-6 max-w-md">
@@ -829,7 +829,7 @@
     </div>
   </div>
 {:else}
-<div class="flex h-screen overflow-hidden bg-gray-50" class:cursor-col-resize={isDraggingLeft || isDraggingRight}>
+<div class="flex h-full overflow-hidden bg-gray-50" class:cursor-col-resize={isDraggingLeft || isDraggingRight}>
   <!-- Left Sidebar -->
   <aside bind:this={leftSidebarElement} class="border-r border-gray-200 bg-white flex flex-col {isDraggingLeft ? '' : 'transition-all'} {leftSidebarCollapsed ? 'w-0 -ml-px' : ''} overflow-hidden" style="width: {leftSidebarCollapsed ? '0px' : leftSidebarWidth + 'px'}">
     <div class="p-4 border-b border-gray-200">

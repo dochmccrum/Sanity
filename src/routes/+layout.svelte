@@ -11,9 +11,9 @@
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-<div class="flex flex-col h-screen overflow-hidden bg-white text-gray-900 font-sans relative">
+<div class="fixed inset-0 flex flex-col overflow-hidden bg-white text-gray-900 font-sans" style="transform: translateZ(0);">
 	{#if isTauri}
-		<div class="absolute inset-0 pointer-events-none border border-gray-200 z-[9999]"></div>
+		<div class="absolute inset-0 pointer-events-none ring-1 ring-gray-200 ring-inset z-[9999]"></div>
 		<TitleBar />
 	{/if}
 	<div class="flex-1 overflow-hidden relative">

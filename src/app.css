@@ -4,6 +4,12 @@
   :root {
     --sidebar-width: 280px;
   }
+
+  html, body {
+    @apply h-full overflow-hidden bg-white;
+    background-color: white; /* Fallback for transparency/flicker */
+    overscroll-behavior: none;
+  }
 }
 
 /* Custom button styles */
