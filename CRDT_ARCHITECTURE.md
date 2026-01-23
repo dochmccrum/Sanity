@@ -1,10 +1,10 @@
 # CRDT Sync Architecture
 
-This document describes the CRDT-based synchronization architecture for JFNotes.
+This document describes the CRDT-based synchronization architecture for Beck.
 
 ## Overview
 
-JFNotes uses **CRDTs (Conflict-free Replicated Data Types)** via [Yjs](https://yjs.dev/) for robust, conflict-free synchronization between devices. This replaces the previous "Last-Write-Wins" strategy that could lose data during concurrent edits.
+Beck uses **CRDTs (Conflict-free Replicated Data Types)** via [Yjs](https://yjs.dev/) for robust, conflict-free synchronization between devices. This replaces the previous "Last-Write-Wins" strategy that could lose data during concurrent edits.
 
 ## Architecture Diagram
 

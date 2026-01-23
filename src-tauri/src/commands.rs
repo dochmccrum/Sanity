@@ -1,4 +1,6 @@
-use crate::database::{assets, Database, Note, NoteSummary, NoteInput, Folder, FolderInput, CrdtState, CrdtStateInput};
+use crate::database::{
+    assets, CrdtState, CrdtStateInput, Database, Folder, FolderInput, Note, NoteInput, NoteSummary,
+};
 use tauri::{Manager, State};
 
 /// Error type for command responses
@@ -62,11 +64,12 @@ pub async fn delete_note(db: State<'_, Database>, id: String) -> Result<bool, Co
 /// Move a note to a folder
 #[tauri::command]
 pub async fn move_note(
-    db: State<'_, Database>, 
-    id: String, 
-    folder_id: Option<String>
+    db: State<'_, Database>,
+    id: String,
+    folder_id: Option<String>,
 ) -> Result<(), CommandError> {
-    db.move_note(&id, folder_id.as_deref()).map_err(|e| e.into())
+    db.move_note(&id, folder_id.as_deref())
+        .map_err(|e| e.into())
 }
 
 /// Get notes updated since an RFC3339 timestamp. Includes deleted notes.
@@ -100,7 +103,10 @@ pub async fn get_all_folders(db: State<'_, Database>) -> Result<Vec<Folder>, Com
 
 /// Get a single folder by ID
 #[tauri::command]
-pub async fn get_folder(db: State<'_, Database>, id: String) -> Result<Option<Folder>, CommandError> {
+pub async fn get_folder(
+    db: State<'_, Database>,
+    id: String,
+) -> Result<Option<Folder>, CommandError> {
     db.get_folder_by_id(&id).map_err(|e| e.into())
 }
 
@@ -116,7 +122,10 @@ pub async fn get_folders_by_parent(
 
 /// Save a folder (create or update)
 #[tauri::command]
-pub async fn save_folder(db: State<'_, Database>, folder: FolderInput) -> Result<Folder, CommandError> {
+pub async fn save_folder(
+    db: State<'_, Database>,
+    folder: FolderInput,
+) -> Result<Folder, CommandError> {
     db.save_folder(folder).map_err(|e| e.into())
 }
 
@@ -142,9 +151,15 @@ pub async fn apply_sync_folders(
     db: State<'_, Database>,
     folders: Vec<Folder>,
 ) -> Result<(), CommandError> {
-    println!("[apply_sync_folders] Received {} folders to apply", folders.len());
+    println!(
+        "[apply_sync_folders] Received {} folders to apply",
+        folders.len()
+    );
     for f in &folders {
-        println!("[apply_sync_folders]   - {} '{}' is_deleted={}", f.id, f.name, f.is_deleted);
+        println!(
+            "[apply_sync_folders]   - {} '{}' is_deleted={}",
+            f.id, f.name, f.is_deleted
+        );
     }
     db.apply_sync_folders(folders).map_err(|e| e.into())
 }
@@ -161,15 +176,11 @@ pub async fn save_image_asset(
     base64_data: String,
     file_extension: String,
 ) -> Result<assets::AssetResult, CommandError> {
-    let app_data_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| CommandError {
-            message: format!("Failed to get app data directory: {}", e),
-        })?;
+    let app_data_dir = app_handle.path().app_data_dir().map_err(|e| CommandError {
+        message: format!("Failed to get app data directory: {}", e),
+    })?;
 
-    assets::save_image_asset(&app_data_dir, &base64_data, &file_extension)
-        .map_err(|e| e.into())
+    assets::save_image_asset(&app_data_dir, &base64_data, &file_extension).map_err(|e| e.into())
 }
 
 /// Save raw image bytes as an asset
@@ -179,15 +190,11 @@ pub async fn save_image_bytes(
     data: Vec<u8>,
     file_extension: String,
 ) -> Result<assets::AssetResult, CommandError> {
-    let app_data_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| CommandError {
-            message: format!("Failed to get app data directory: {}", e),
-        })?;
+    let app_data_dir = app_handle.path().app_data_dir().map_err(|e| CommandError {
+        message: format!("Failed to get app data directory: {}", e),
+    })?;
 
-    assets::save_image_bytes(&app_data_dir, &data, &file_extension)
-        .map_err(|e| e.into())
+    assets::save_image_bytes(&app_data_dir, &data, &file_extension).map_err(|e| e.into())
 }
 
 /// Save an image asset from a file path
@@ -196,17 +203,13 @@ pub async fn save_image_from_path(
     app_handle: tauri::AppHandle,
     path: String,
 ) -> Result<assets::AssetResult, CommandError> {
-    let app_data_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| CommandError {
-            message: format!("Failed to get app data directory: {}", e),
-        })?;
+    let app_data_dir = app_handle.path().app_data_dir().map_err(|e| CommandError {
+        message: format!("Failed to get app data directory: {}", e),
+    })?;
 
-    let data = std::fs::read(&path)
-        .map_err(|e| CommandError {
-            message: format!("Failed to read file: {}", e),
-        })?;
+    let data = std::fs::read(&path).map_err(|e| CommandError {
+        message: format!("Failed to read file: {}", e),
+    })?;
 
     let file_extension = std::path::Path::new(&path)
         .extension()
@@ -214,8 +217,7 @@ pub async fn save_image_from_path(
         .unwrap_or("png")
         .to_string();
 
-    assets::save_image_bytes(&app_data_dir, &data, &file_extension)
-        .map_err(|e| e.into())
+    assets::save_image_bytes(&app_data_dir, &data, &file_extension).map_err(|e| e.into())
 }
 
 /// Delete an asset by ID
@@ -224,12 +226,9 @@ pub async fn delete_asset(
     app_handle: tauri::AppHandle,
     asset_id: String,
 ) -> Result<bool, CommandError> {
-    let app_data_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| CommandError {
-            message: format!("Failed to get app data directory: {}", e),
-        })?;
+    let app_data_dir = app_handle.path().app_data_dir().map_err(|e| CommandError {
+        message: format!("Failed to get app data directory: {}", e),
+    })?;
 
     assets::delete_asset(&app_data_dir, &asset_id).map_err(|e| e.into())
 }
@@ -239,12 +238,9 @@ pub async fn delete_asset(
 pub async fn list_assets(
     app_handle: tauri::AppHandle,
 ) -> Result<Vec<assets::AssetResult>, CommandError> {
-    let app_data_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| CommandError {
-            message: format!("Failed to get app data directory: {}", e),
-        })?;
+    let app_data_dir = app_handle.path().app_data_dir().map_err(|e| CommandError {
+        message: format!("Failed to get app data directory: {}", e),
+    })?;
 
     assets::list_assets(&app_data_dir).map_err(|e| e.into())
 }
@@ -252,12 +248,9 @@ pub async fn list_assets(
 /// Get the assets directory path (for debugging/info)
 #[tauri::command]
 pub async fn get_assets_path(app_handle: tauri::AppHandle) -> Result<String, CommandError> {
-    let app_data_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| CommandError {
-            message: format!("Failed to get app data directory: {}", e),
-        })?;
+    let app_data_dir = app_handle.path().app_data_dir().map_err(|e| CommandError {
+        message: format!("Failed to get app data directory: {}", e),
+    })?;
 
     let assets_dir = assets::get_assets_dir(&app_data_dir);
     Ok(assets_dir.to_string_lossy().to_string())
@@ -279,7 +272,8 @@ pub async fn save_crdt_state(
         note_id,
         ydoc_state,
         state_vector,
-    }).map_err(|e| e.into())
+    })
+    .map_err(|e| e.into())
 }
 
 /// Get CRDT state for a note
@@ -293,9 +287,7 @@ pub async fn get_crdt_state(
 
 /// Get all CRDT states (for full sync)
 #[tauri::command]
-pub async fn get_all_crdt_states(
-    db: State<'_, Database>,
-) -> Result<Vec<CrdtState>, CommandError> {
+pub async fn get_all_crdt_states(db: State<'_, Database>) -> Result<Vec<CrdtState>, CommandError> {
     db.get_all_crdt_states().map_err(|e| e.into())
 }
 
@@ -305,7 +297,8 @@ pub async fn get_crdt_states_for_notes(
     db: State<'_, Database>,
     note_ids: Vec<String>,
 ) -> Result<Vec<CrdtState>, CommandError> {
-    db.get_crdt_states_for_notes(&note_ids).map_err(|e| e.into())
+    db.get_crdt_states_for_notes(&note_ids)
+        .map_err(|e| e.into())
 }
 
 /// Delete CRDT state for a note
@@ -323,7 +316,8 @@ pub async fn get_crdt_states_updated_since(
     db: State<'_, Database>,
     since: Option<String>,
 ) -> Result<Vec<CrdtState>, CommandError> {
-    db.get_crdt_states_updated_since(since.as_deref()).map_err(|e| e.into())
+    db.get_crdt_states_updated_since(since.as_deref())
+        .map_err(|e| e.into())
 }
 
 /// Apply a CRDT update from the server
@@ -333,5 +327,6 @@ pub async fn apply_crdt_update(
     note_id: String,
     update: Vec<u8>,
 ) -> Result<(), CommandError> {
-    db.apply_crdt_update(&note_id, &update).map_err(|e| e.into())
+    db.apply_crdt_update(&note_id, &update)
+        .map_err(|e| e.into())
 }

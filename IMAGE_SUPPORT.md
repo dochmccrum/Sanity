@@ -1,6 +1,6 @@
 # Image Support Implementation
 
-This document describes the image support added to the JFNotes application.
+This document describes the image support added to the Beck application.
 
 ## Features Added
 
@@ -71,6 +71,6 @@ This document describes the image support added to the JFNotes application.
 ## Technical Notes
 
 - Image format: PNG (converted during scaling)
-- Storage location: `~/.local/share/com.jfnotes.app/.assets/` on Linux
+- Storage location: `~/.local/share/com.beck.app/.assets/` on Linux
 - Asset protocol: `asset://localhost/[path]`
 - Max dimensions: 800x600 pixels (maintains aspect ratio)

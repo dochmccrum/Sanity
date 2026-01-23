@@ -70,7 +70,7 @@ Common outputs on Linux:
 
 ### CRDT-Based Sync (New Architecture)
 
-JFNotes now uses **CRDTs (Conflict-free Replicated Data Types)** via [Yjs](https://yjs.dev/) for robust, conflict-free synchronization between devices.
+Beck now uses **CRDTs (Conflict-free Replicated Data Types)** via [Yjs](https://yjs.dev/) for robust, conflict-free synchronization between devices.
 
 #### How It Works
 

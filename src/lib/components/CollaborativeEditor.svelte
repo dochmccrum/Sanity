@@ -51,6 +51,21 @@
     }
   }
 
+  export function getMarkdown(): string {
+    if (editor) {
+      // @ts-ignore - markdown storage exists but might not be in types
+      return editor.storage.markdown?.getMarkdown?.() || '';
+    }
+    return '';
+  }
+
+  export function getHTML(): string {
+    if (editor) {
+      return editor.getHTML();
+    }
+    return '';
+  }
+
   export function insertImage(src: string) {
     if (editor) {
       editor.chain()
@@ -219,7 +234,6 @@
       element: editorElement,
       extensions: [
         StarterKit.configure({
-          history: false,
           heading: { levels: [1, 2, 3] },
           bulletList: { keepMarks: true, keepAttributes: false },
           orderedList: { keepMarks: true, keepAttributes: false },

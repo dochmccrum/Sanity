@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Sanity",
+  "productName": "Beck",
   "version": "0.1.0",
-  "identifier": "com.jfnotes.app",
+  "identifier": "com.beck.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
@@ -36,14 +36,21 @@
             "core:event:allow-listen",
             "core:event:allow-emit",
             "fs:allow-read-file",
-            "fs:default"
+            "fs:allow-write-file",
+            "fs:allow-desktop-write",
+            "fs:allow-document-write",
+            "fs:allow-download-write",
+            "fs:default",
+            "dialog:default",
+            "dialog:allow-save",
+            "dialog:allow-open"
           ]
         }
       ]
     },
     "windows": [
       {
-        "title": "Sanity",
+        "title": "Beck",
         "width": 1200,
         "height": 800,
         "resizable": true,

@@ -4,7 +4,7 @@ const isTauri = typeof window !== 'undefined' && (window as any).__TAURI__;
 
 function getBaseUrl(): string {
   if (typeof window !== 'undefined') {
-    const saved = localStorage.getItem('jfnotes_sync_server_url');
+    const saved = localStorage.getItem('beck_sync_server_url');
     if (saved) return saved.replace(/\/+$/, '');
   }
   return env.PUBLIC_API_BASE_URL || '';

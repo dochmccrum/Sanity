@@ -5,4 +5,4 @@ services:
 
   server:
     ports:
-      - "${JFNOTES_HOST_PORT:-8080}:8080"
+      - "${BECK_HOST_PORT:-8080}:8080"

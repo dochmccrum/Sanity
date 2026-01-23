@@ -1,12 +1,12 @@
 [package]
-name = "jfnotes"
+name = "beck"
 version = "0.1.0"
 description = "A local-first notes application"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "jfnotes_lib"
+name = "beck_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]
@@ -33,6 +33,7 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Base64 encoding/decoding for assets
 base64 = "0.22"
+tauri-plugin-dialog = "2"
 
 [features]
 default = ["custom-protocol"]

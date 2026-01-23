@@ -36,11 +36,11 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates libssl3 \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=serverbuilder /app/server/target/release/jfnotes-server /app/jfnotes-server
+COPY --from=serverbuilder /app/server/target/release/beck-server /app/beck-server
 COPY --from=webbuilder /app/build /app/static
 
 ENV RUST_LOG=info
 ENV STATIC_DIR=/app/static
 EXPOSE 8080
 
-CMD ["/app/jfnotes-server"]
+CMD ["/app/beck-server"]

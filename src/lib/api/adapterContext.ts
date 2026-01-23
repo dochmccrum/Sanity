@@ -16,7 +16,7 @@ export function getNoteRepository(): NoteRepository {
     // For web, use a dynamic base URL that respects settings
     const getBaseUrl = () => {
       if (typeof window !== 'undefined') {
-        const saved = localStorage.getItem('jfnotes_sync_server_url');
+        const saved = localStorage.getItem('beck_sync_server_url');
         if (saved) return saved.replace(/\/+$/, '');
       }
       return env.PUBLIC_API_BASE_URL || '';

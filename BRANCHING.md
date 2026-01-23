@@ -121,7 +121,7 @@ chore(deps): update dependencies
 ```bash
 # Clone repository
 git clone <repo-url>
-cd JFNotes
+cd Beck
 
 # Set up local user (optional, if not already configured)
 git config user.name "Your Name"

@@ -15,6 +15,36 @@
   let syncPassword = $state('');
   let loginBusy = $state(false);
   let syncBusy = $state(false);
+  
+  let recordingShortcut = $state<string | null>(null);
+
+  function getShortcutString(e: KeyboardEvent): string {
+    const parts = [];
+    if (e.ctrlKey || e.metaKey) parts.push('Control');
+    if (e.altKey) parts.push('Alt');
+    if (e.shiftKey) parts.push('Shift');
+    
+    const key = e.key;
+    if (!['Control', 'Alt', 'Shift', 'Meta'].includes(key)) {
+      parts.push(key);
+    }
+    
+    return parts.join('+');
+  }
+
+  function handleShortcutKeyDown(e: KeyboardEvent) {
+    if (!recordingShortcut) return;
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Don't record just modifier keys
+    if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+    
+    const newShortcut = getShortcutString(e);
+    settings.updateShortcut(recordingShortcut as any, newShortcut);
+    recordingShortcut = null;
+  }
+
   let syncStatus = $state<string | null>(null);
 
   async function handleLogin() {
@@ -96,28 +126,84 @@
           </button>
         </div>
 
-        <!-- Confirm Before Delete Setting -->
+        <!-- Auto-highlight Folder Setting -->
         <div class="flex items-start gap-4">
           <div class="flex-1">
-            <label for="confirm-delete" class="block font-medium text-gray-900">
-              Confirm Before Delete
+            <label for="auto-highlight-folder" class="block font-medium text-gray-900">
+              Auto-highlight Folder Name
+            </label>
+            <p class="text-sm text-gray-500 mt-1">
+              Automatically select the folder name when editing
+            </p>
+          </div>
+            <button
+              id="auto-highlight-folder"
+              class="relative flex h-8 w-14 min-w-14 flex-none items-center rounded-full transition-colors p-0.5 {settings.autoSelectFolderNameOnEdit
+              ? 'bg-indigo-600'
+              : 'bg-gray-300'}"
+            onclick={() => {
+              settings.autoSelectFolderNameOnEdit = !settings.autoSelectFolderNameOnEdit;
+            }}
+            aria-label="Toggle auto-highlight folder name"
+          >
+            <span
+              class="h-6 w-6 rounded-full bg-white transition-transform duration-200 ease-in-out {settings.autoSelectFolderNameOnEdit
+                ? 'translate-x-7'
+                : 'translate-x-0'}"
+            ></span>
+          </button>
+        </div>
+
+        <!-- Confirm Note Delete Setting -->
+        <div class="flex items-start gap-4">
+          <div class="flex-1">
+            <label for="confirm-note-delete" class="block font-medium text-gray-900">
+              Confirm Note Delete
             </label>
             <p class="text-sm text-gray-500 mt-1">
               Show confirmation dialog before deleting notes
             </p>
           </div>
             <button
-              id="confirm-delete"
-              class="relative flex h-8 w-14 min-w-14 flex-none items-center rounded-full transition-colors p-0.5 {settings.confirmBeforeDelete
+              id="confirm-note-delete"
+              class="relative flex h-8 w-14 min-w-14 flex-none items-center rounded-full transition-colors p-0.5 {settings.confirmNoteDelete
               ? 'bg-indigo-600'
               : 'bg-gray-300'}"
             onclick={() => {
-              settings.confirmBeforeDelete = !settings.confirmBeforeDelete;
+              settings.confirmNoteDelete = !settings.confirmNoteDelete;
             }}
-            aria-label="Toggle confirm before delete"
+            aria-label="Toggle confirm note delete"
           >
             <span
-              class="h-6 w-6 rounded-full bg-white transition-transform duration-200 ease-in-out {settings.confirmBeforeDelete
+              class="h-6 w-6 rounded-full bg-white transition-transform duration-200 ease-in-out {settings.confirmNoteDelete
+                ? 'translate-x-7'
+                : 'translate-x-0'}"
+            ></span>
+          </button>
+        </div>
+
+        <!-- Confirm Folder Delete Setting -->
+        <div class="flex items-start gap-4">
+          <div class="flex-1">
+            <label for="confirm-folder-delete" class="block font-medium text-gray-900">
+              Confirm Folder Delete
+            </label>
+            <p class="text-sm text-gray-500 mt-1">
+              Show confirmation dialog before deleting folders
+            </p>
+          </div>
+            <button
+              id="confirm-folder-delete"
+              class="relative flex h-8 w-14 min-w-14 flex-none items-center rounded-full transition-colors p-0.5 {settings.confirmFolderDelete
+              ? 'bg-indigo-600'
+              : 'bg-gray-300'}"
+            onclick={() => {
+              settings.confirmFolderDelete = !settings.confirmFolderDelete;
+            }}
+            aria-label="Toggle confirm folder delete"
+          >
+            <span
+              class="h-6 w-6 rounded-full bg-white transition-transform duration-200 ease-in-out {settings.confirmFolderDelete
                 ? 'translate-x-7'
                 : 'translate-x-0'}"
             ></span>
@@ -234,6 +320,59 @@
                 : 'translate-x-0'}"
             ></span>
           </button>
+        </div>
+
+        <!-- Single Sidebar Mode Setting -->
+        <div class="flex items-start gap-4">
+          <div class="flex-1">
+            <label for="single-sidebar" class="block font-medium text-gray-900">
+              Single Sidebar Mode
+            </label>
+            <p class="text-sm text-gray-500 mt-1">
+              Combine folders and notes into a single sidebar. Disables "All Notes" and "Uncategorised" folders.
+            </p>
+          </div>
+            <button
+              id="single-sidebar"
+              class="relative flex h-8 w-14 min-w-14 flex-none items-center rounded-full transition-colors p-0.5 {settings.singleSidebarMode
+              ? 'bg-indigo-600'
+              : 'bg-gray-300'}"
+            onclick={() => {
+              settings.singleSidebarMode = !settings.singleSidebarMode;
+            }}
+            aria-label="Toggle single sidebar mode"
+          >
+            <span
+              class="h-6 w-6 rounded-full bg-white transition-transform duration-200 ease-in-out {settings.singleSidebarMode
+                ? 'translate-x-7'
+                : 'translate-x-0'}"
+            ></span>
+          </button>
+        </div>
+
+        <!-- Shortcuts Setting -->
+        <div class="border-t border-gray-200 pt-6">
+          <h3 class="text-lg font-semibold text-gray-900">Shortcuts</h3>
+          <p class="text-sm text-gray-500 mt-1 mb-4">
+            Click a shortcut to reprogram it.
+          </p>
+          
+          <div class="space-y-2">
+            {#each Object.entries(settings.shortcuts) as [key, value]}
+              <div class="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg group">
+                <span class="text-sm font-medium text-gray-700 capitalize">
+                  {key.replace(/([A-Z])/g, ' $1').trim()}
+                </span>
+                <button
+                  class="px-3 py-1.5 rounded bg-gray-100 border border-gray-300 text-xs font-mono min-w-[100px] text-center hover:border-indigo-500 transition-all {recordingShortcut === key ? 'ring-2 ring-indigo-500 bg-white' : ''}"
+                  onclick={() => recordingShortcut = (recordingShortcut === key ? null : key)}
+                  onkeydown={handleShortcutKeyDown}
+                >
+                  {recordingShortcut === key ? 'Press keys...' : value}
+                </button>
+              </div>
+            {/each}
+          </div>
         </div>
 
         {#if isTauri}

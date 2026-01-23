@@ -47,3 +47,32 @@
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-gray-500;
 }
+
+/* Print Styles */
+@media print {
+  aside, nav, .resize-handle, button, .border-b, .border-r {
+    display: none !important;
+  }
+
+  main {
+    display: block !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .prose {
+    max-width: none !important;
+  }
+
+  /* Ensure background colors/images print if the user has it enabled */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}

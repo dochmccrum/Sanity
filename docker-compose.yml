@@ -2,13 +2,13 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-jfnotes}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jfnotes}
-      POSTGRES_DB: ${POSTGRES_DB:-jfnotes}
+      POSTGRES_USER: ${POSTGRES_USER:-beck}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-beck}
+      POSTGRES_DB: ${POSTGRES_DB:-beck}
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U jfnotes"]
+      test: ["CMD-SHELL", "pg_isready -U beck"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -18,7 +18,7 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-jfnotes}:${POSTGRES_PASSWORD:-jfnotes}@db:5432/${POSTGRES_DB:-jfnotes}
+      DATABASE_URL: postgres://${POSTGRES_USER:-beck}:${POSTGRES_PASSWORD:-beck}@db:5432/${POSTGRES_DB:-beck}
       RUST_LOG: ${RUST_LOG:-info,axum=info,sqlx=info}
       JWT_SECRET: ${JWT_SECRET:-change-me}
       STATIC_DIR: /app/static

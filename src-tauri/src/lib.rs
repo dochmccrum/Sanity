@@ -8,6 +8,7 @@ use tauri::{Emitter, Manager};
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
@@ -18,8 +19,7 @@ pub fn run() {
                 .expect("Failed to get app data directory");
 
             // Initialize the database
-            let db = Database::new(&app_data_dir)
-                .expect("Failed to initialize database");
+            let db = Database::new(&app_data_dir).expect("Failed to initialize database");
 
             // Store database as managed state
             app.manage(db);

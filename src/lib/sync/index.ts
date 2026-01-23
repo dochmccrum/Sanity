@@ -1,7 +1,7 @@
 /**
  * CRDT Sync Module
  * 
- * Exports all sync-related functionality for the JFNotes app.
+ * Exports all sync-related functionality for the Beck app.
  */
 
 export { YjsDocManager, getYjsDocManager, destroyYjsDocManager, uint8ArrayToBase64, base64ToUint8Array } from './YjsDocManager';

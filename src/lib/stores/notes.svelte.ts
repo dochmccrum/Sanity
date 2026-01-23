@@ -39,7 +39,7 @@ export function createNotesStore() {
 
           // Notify auto-sync scheduler (Tauri only)
           if (typeof window !== 'undefined' && (window as any).__TAURI__) {
-            window.dispatchEvent(new CustomEvent('jfnotes:local-change'));
+            window.dispatchEvent(new CustomEvent('beck:local-change'));
           }
 
           if (wsProvider?.isConnected()) {
@@ -393,7 +393,7 @@ export function createNotesStore() {
           isSyncing = false;
         },
       });
-      wsProvider.connect();
+      wsProvider?.connect();
     } catch (err) {
       console.error('Failed to initialize WebSocket sync:', err);
     }

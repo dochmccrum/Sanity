@@ -116,7 +116,8 @@ pub async fn delete_folder(
     let folder_id = Uuid::parse_str(&id).map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
 
     // Soft-delete folder and all descendants (so tree stays consistent across sync)
-    let result = sqlx::query(
+    let now = chrono::Utc::now();
+    sqlx::query(
         "WITH RECURSIVE descendants AS (
             SELECT id FROM folders WHERE id = $1
             UNION ALL
@@ -124,20 +125,38 @@ pub async fn delete_folder(
             JOIN descendants d ON f.parent_id = d.id
         )
         UPDATE folders
-        SET is_deleted = true, updated_at = now()
+        SET is_deleted = true, updated_at = $2
         WHERE id IN (SELECT id FROM descendants)",
     )
         .bind(folder_id)
+        .bind(now)
         .execute(&state.pool)
         .await
         .map_err(|err| {
-            tracing::error!(?err, "failed to delete folder");
+            tracing::error!(?err, "failed to delete folders");
             axum::http::StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    if result.rows_affected() == 0 {
-        return Err(axum::http::StatusCode::NOT_FOUND);
-    }
+    // ALSO Soft-delete all notes in these folders
+    sqlx::query(
+        "WITH RECURSIVE descendants AS (
+            SELECT id FROM folders WHERE id = $1
+            UNION ALL
+            SELECT f.id FROM folders f
+            JOIN descendants d ON f.parent_id = d.id
+        )
+        UPDATE notes
+        SET is_deleted = true, updated_at = $2
+        WHERE folder_id IN (SELECT id FROM descendants)",
+    )
+        .bind(folder_id)
+        .bind(now)
+        .execute(&state.pool)
+        .await
+        .map_err(|err| {
+            tracing::error!(?err, "failed to delete notes in folders");
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))
 }

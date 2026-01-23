@@ -64,7 +64,7 @@
 
 <div class="h-8 bg-gray-100 border-b border-gray-200 flex justify-between items-center select-none w-full shrink-0 z-50">
   <div data-tauri-drag-region class="flex items-center pl-4 gap-2 flex-1 h-full">
-     <span class="text-xs font-medium text-gray-500">Sanity</span>
+     <span class="text-xs font-medium text-gray-500">Beck</span>
   </div>
   
   <div class="flex h-full">

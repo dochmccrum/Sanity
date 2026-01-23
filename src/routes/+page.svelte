@@ -7,11 +7,19 @@
   import CollaborativeEditor from '$lib/components/CollaborativeEditor.svelte';
   import SettingsModal from '$lib/components/SettingsModal.svelte';
   import { uploadImage } from '$lib/utils/imageUpload';
-  const isTauri = typeof window !== 'undefined' && (window as any).__TAURI__;
+  import { createNotesStore } from '$lib/stores/notes.svelte';
+  import { createFoldersStore } from '$lib/stores/folders.svelte';
+  import { createSettingsStore } from '$lib/stores/settings.svelte';
+  
+  const isTauri = typeof window !== 'undefined' && (
+    (window as any).__TAURI__ !== undefined || 
+    (window as any).__TAURI_IPC__ !== undefined || 
+    (window as any).__TAURI_INTERNALS__ !== undefined
+  );
 
-  let notesStore: any = $state(null);
-  let foldersStore: any = $state(null);
-  let settingsStore: any = $state(null);
+  let notesStore = createNotesStore();
+  let foldersStore = createFoldersStore();
+  let settingsStore = createSettingsStore();
   let initialized = $state(false);
   let showSettings = $state(false);
   let editingFolderId = $state<string | null>(null);
@@ -42,11 +50,238 @@
   let currentRightWidth: number = 320;
   const smoothing = 0.3; // More smoothing for fluid feel
   let draggedNote: Note | null = $state(null);
+  let draggedFolder: Folder | null = $state(null);
   let dragOverFolder: string | null = $state(null);
   let expandedNotePreview = $state<string | null>(null);
   let syncInProgress = $state(false);
   let isMobile = $state(false);
   let activeMobilePane = $state<'folders' | 'notes' | 'editor'>('folders');
+  let showEditorMenu = $state(false);
+  let editorMenuButton = $state<HTMLButtonElement | null>(null);
+  let editorMenuContainer = $state<HTMLDivElement | null>(null);
+  let showExportSuccess = $state(false);
+  let exportedPath = $state('');
+  let exportStatus = $state('');
+  
+  // Single Sidebar Mode state
+  let expandedFolders = $state<Set<string>>(new Set());
+  let selectedFolderIds = $state<Set<string>>(new Set());
+  let lastSelectedFolderId = $state<string | null>(null);
+  
+  // Note multi-selection state
+  let selectedNoteIds = $state<Set<string>>(new Set());
+  let lastSelectedNoteId = $state<string | null>(null);
+  
+  function matchesShortcut(e: KeyboardEvent, shortcut: string): boolean {
+    if (!shortcut) return false;
+    const parts = shortcut.split('+').map(p => p.trim().toLowerCase());
+    const key = parts.pop();
+    
+    const meta = parts.includes('control') || parts.includes('ctrl') || parts.includes('meta') || parts.includes('cmd');
+    const alt = parts.includes('alt');
+    const shift = parts.includes('shift');
+    
+    const eMeta = e.ctrlKey || e.metaKey;
+    const eAlt = e.altKey;
+    const eShift = e.shiftKey;
+    
+    return e.key.toLowerCase() === key && meta === eMeta && alt === eAlt && shift === eShift;
+  }
+
+  function handleWindowKeydown(e: KeyboardEvent) {
+    const isInput = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || (e.target as HTMLElement).isContentEditable;
+
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+       if (isInput) return;
+
+       if (selectedFolderIds.size > 0) {
+           handleDeleteFolders();
+       } else if (selectedNoteIds.size > 0) {
+           handleDeleteSelectedNotes();
+       } else if (notesStore?.selectedNote) {
+            handleDeleteNoteClick(notesStore.selectedNote);
+       }
+       return;
+    }
+
+    if (!settingsStore?.shortcuts) return;
+    const { shortcuts } = settingsStore;
+
+    if (matchesShortcut(e, shortcuts.toggleSidebar)) {
+      e.preventDefault();
+      if (settingsStore.singleSidebarMode) {
+        leftSidebarCollapsed = !leftSidebarCollapsed;
+      } else {
+        // Toggle both or intelligently? Let's toggle both for "B" shortcut style
+        const target = !(leftSidebarCollapsed && rightSidebarCollapsed);
+        leftSidebarCollapsed = target;
+        rightSidebarCollapsed = target;
+      }
+    } else if (matchesShortcut(e, shortcuts.search)) {
+      e.preventDefault();
+      handleSearchOpen();
+    } else if (matchesShortcut(e, shortcuts.newNote)) {
+      e.preventDefault();
+      handleCreateNote();
+    } else if (matchesShortcut(e, shortcuts.newFolder)) {
+      e.preventDefault();
+      handleCreateFolder();
+    } else if (matchesShortcut(e, shortcuts.exportPdf)) {
+      e.preventDefault();
+      handleExportPdf();
+    }
+  }
+
+  async function handleDeleteFolders() {
+    if (selectedFolderIds.size === 0) return;
+    if (settingsStore?.confirmFolderDelete) {
+        showDeleteFolderConfirm = true;
+    } else {
+        confirmDeleteFolder();
+    }
+  }
+
+  async function handleDeleteSelectedNotes() {
+    if (selectedNoteIds.size === 0) return;
+    if (settingsStore?.confirmNoteDelete) {
+        showDeleteConfirm = true;
+    } else {
+        confirmDeleteNote();
+    }
+  }
+
+  $effect(() => {
+      if (typeof window !== 'undefined') {
+          window.addEventListener('keydown', handleWindowKeydown);
+          return () => window.removeEventListener('keydown', handleWindowKeydown);
+      }
+  });
+
+  function toggleFolder(folderId: string) {
+    const next = new Set(expandedFolders);
+    if (next.has(folderId)) {
+      next.delete(folderId);
+    } else {
+      next.add(folderId);
+    }
+    expandedFolders = next;
+    console.log('Toggled folder:', folderId, 'expanded:', next.has(folderId));
+  }
+  
+  $effect(() => {
+    // When switching to single sidebar mode, ensure all notes are loaded
+    if (settingsStore?.singleSidebarMode && notesStore) {
+       // Only trigger if we aren't already loading or have all notes
+       // But how do we know if we have "all"? passing undefined to loadNotes gets all.
+       // We can just call it.
+       // Check if current notes list logic is "filtered".
+       // If we toggle the setting, we want to refresh.
+       notesStore.loadNotes();
+    }
+  });
+
+  // Search state
+  let showSearch = $state(false);
+  let searchQuery = $state('');
+  let searchInput = $state<HTMLInputElement | null>(null);
+  let searchResults = $state<Note[]>([]);
+  let allNotesCache = $state<Note[]>([]);
+
+  // Auto-focus search input when opened
+  $effect(() => {
+    if (showSearch && searchInput) {
+      setTimeout(() => {
+        searchInput?.focus();
+      }, 50);
+    }
+  });
+
+  // Fast search implementation - builds index on first search, then filters instantly
+  function performSearch(query: string) {
+    if (!query.trim()) {
+      searchResults = [];
+      return;
+    }
+    
+    const lowerQuery = query.toLowerCase();
+    const terms = lowerQuery.split(/\s+/).filter(t => t.length > 0);
+    
+    // Search through all notes (not just current folder)
+    const notesToSearch = allNotesCache.length > 0 ? allNotesCache : (notesStore?.notes || []);
+    
+    searchResults = notesToSearch.filter((note: Note) => {
+      if (note.is_deleted) return false;
+      
+      const titleLower = (note.title || '').toLowerCase();
+      const contentText = stripHtml(note.content || '').toLowerCase();
+      
+      // All search terms must match either title or content
+      return terms.every(term => 
+        titleLower.includes(term) || contentText.includes(term)
+      );
+    }).slice(0, 50); // Limit results for performance
+  }
+
+  // Load all notes for search (refreshes cache each time search opens for fresh content)
+  async function loadAllNotesForSearch() {
+    try {
+      if (isTauri) {
+        const { invoke } = await import('@tauri-apps/api/core');
+        // Use get_notes_updated_since with null to get ALL notes WITH content
+        // (get_notes returns NoteSummary which doesn't include content)
+        allNotesCache = await invoke('get_notes_updated_since', { since: null });
+      } else {
+        // For web, use all notes from the store
+        allNotesCache = notesStore?.notes || [];
+      }
+    } catch (err) {
+      console.error('Failed to load notes for search:', err);
+      allNotesCache = notesStore?.notes || [];
+    }
+  }
+
+  function handleSearchOpen() {
+    showSearch = true;
+    // Always refresh notes cache to get latest content
+    loadAllNotesForSearch();
+    // Focus will be handled by the bind:this and autofocus
+  }
+
+  function handleSearchClose() {
+    showSearch = false;
+    searchQuery = '';
+    searchResults = [];
+  }
+
+  function handleSearchKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      handleSearchClose();
+    }
+  }
+
+  async function selectSearchResult(note: Note) {
+    // If the note is in a different folder, select that folder first
+    if (note.folder_id) {
+      const folder = foldersStore?.folders?.find((f: Folder) => f.id === note.folder_id);
+      const selected = foldersStore?.selectedFolder;
+      const selectedId = (selected && typeof selected !== 'string') ? selected.id : null;
+      
+      if (folder && folder.id !== selectedId) {
+        handleSelectFolder(folder);
+      }
+    } else if (foldersStore?.selectedFolder && foldersStore.selectedFolder !== 'uncategorised') {
+      handleSelectFolder(null);
+    }
+    
+    // Select the note
+    notesStore?.selectNote(note);
+    
+    // Close search and switch to editor on mobile
+    handleSearchClose();
+    if (isMobile) {
+      activeMobilePane = 'editor';
+    }
+  }
 
   // Auto-sync (Tauri only): debounce pushes after edits + periodic pulls.
   let autoSyncTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -87,8 +322,8 @@
       const token = localStorage.getItem('jwt')!;
 
       // 1) Sync folders first (still using REST for folders)
-      const serverSince = localStorage.getItem('jfnotes_last_sync');
-      const localSince = localStorage.getItem('jfnotes_last_local_sync');
+      const serverSince = localStorage.getItem('beck_last_sync');
+      const localSince = localStorage.getItem('beck_last_local_sync');
 
       const localFolders: any[] = await invoke('get_folders_updated_since', {
         since: localSince || null,
@@ -138,8 +373,8 @@
       }
 
       // Update sync timestamps
-      localStorage.setItem('jfnotes_last_sync', new Date().toISOString());
-      localStorage.setItem('jfnotes_last_local_sync', new Date().toISOString());
+      localStorage.setItem('beck_last_sync', new Date().toISOString());
+      localStorage.setItem('beck_last_local_sync', new Date().toISOString());
       settingsStore?.refreshLastSync?.();
 
       // Reload notes to reflect any server changes
@@ -289,6 +524,26 @@
       });
       document.addEventListener('mousemove', handleResizeMouseMove);
       document.addEventListener('mouseup', handleResizeMouseUp);
+      document.addEventListener('mousedown', (e) => {
+        const target = e.target as Node;
+        if (showEditorMenu && 
+            editorMenuButton && !editorMenuButton.contains(target) &&
+            (!editorMenuContainer || !editorMenuContainer.contains(target))) {
+          showEditorMenu = false;
+        }
+      });
+      
+      // Global keyboard shortcut for search (Ctrl+K / Cmd+K)
+      document.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+          e.preventDefault();
+          if (showSearch) {
+            handleSearchClose();
+          } else {
+            handleSearchOpen();
+          }
+        }
+      });
     }
 
     const handleLocalChange = () => {
@@ -355,21 +610,16 @@
     const initializeStores = async () => {
       if (!browser) return;
       try {
-        console.log('Initializing stores...');
+        console.log('Initializing app stores...');
         
-        // Set a timeout to prevent infinite loading
+        // Safety timeout
         const timeout = setTimeout(() => {
-          console.error('Store initialization timeout');
-          initError = 'Failed to load app - timeout';
-          initialized = true;
+          if (!initialized) {
+            console.error('Initialization timeout reached');
+            initialized = true;
+          }
         }, 5000);
         
-        const { createNotesStore } = await import('$lib/stores/notes.svelte');
-        const { createFoldersStore } = await import('$lib/stores/folders.svelte');
-        const { createSettingsStore } = await import('$lib/stores/settings.svelte');
-        notesStore = createNotesStore();
-        foldersStore = createFoldersStore();
-        settingsStore = createSettingsStore();
         settingsStore.loadSettings();
 
         // Auto-sync wiring (Tauri only)
@@ -378,7 +628,6 @@
             const original = obj?.[key];
             if (typeof original !== 'function') return;
             obj[key] = async (...args: any[]) => {
-              // Start debounce immediately so typing feels responsive.
               scheduleAutoSync();
               return original(...args);
             };
@@ -397,11 +646,10 @@
             void autoSync();
           }, 10000);
 
-          window.addEventListener('jfnotes:local-change', handleLocalChange);
+          window.addEventListener('beck:local-change', handleLocalChange);
         } else {
           if (autoPullInterval) clearInterval(autoPullInterval);
           autoPullInterval = setInterval(() => {
-            // Reload notes respecting current folder selection
             const selected = foldersStore?.selectedFolder;
             if (selected === 'uncategorised') {
               void notesStore.loadNotes(undefined, true);
@@ -414,7 +662,7 @@
           }, 15000);
         }
         
-        console.log('Loading data...');
+        console.log('Loading notes and folders...');
         await Promise.all([
           notesStore.loadNotes(),
           foldersStore.loadFolders()
@@ -422,19 +670,10 @@
         
         clearTimeout(timeout);
         initialized = true;
-        console.log('Data loaded successfully');
+        console.log('App initialized successfully');
       } catch (error) {
-        console.error('Error initializing app:', error);
+        console.error('Error during initialization:', error);
         initError = error instanceof Error ? error.message : 'Failed to initialize';
-        // Set stores anyway so UI shows, but with errors
-        if (!notesStore || !foldersStore) {
-          const { createNotesStore } = await import('$lib/stores/notes.svelte');
-          const { createFoldersStore } = await import('$lib/stores/folders.svelte');
-          const { createSettingsStore } = await import('$lib/stores/settings.svelte');
-          notesStore = createNotesStore();
-          foldersStore = createFoldersStore();
-          settingsStore = createSettingsStore();
-        }
         initialized = true;
       }
     };
@@ -465,7 +704,7 @@
         autoSyncTimeout = null;
       }
       if (isTauri && typeof window !== 'undefined') {
-        window.removeEventListener('jfnotes:local-change', handleLocalChange);
+        window.removeEventListener('beck:local-change', handleLocalChange);
       }
     };
   });
@@ -479,12 +718,30 @@
 
   async function handleCreateNote() {
     if (!notesStore || !foldersStore) return;
-    // When in uncategorised view or all notes, create without folder
-    // When in a specific folder, create in that folder
+    
+    // Determine parent folder: priority to selectedFolder, fallback to lastSelectedFolderId
+    let folderId: string | undefined = undefined;
     const selected = foldersStore.selectedFolder;
-    const folderId = (selected && typeof selected !== 'string') ? selected.id : undefined;
+    
+    if (selected && typeof selected !== 'string') {
+      folderId = selected.id;
+    } else if (lastSelectedFolderId) {
+      folderId = lastSelectedFolderId;
+    }
+    
+    // If we explicitly have no selection (cleared by clicking background), ensure folderId is undefined
+    if (selectedFolderIds.size === 0 && !selected) {
+      folderId = undefined;
+    }
+    
     const note = await notesStore.createNote(folderId);
     if (note) {
+      if (folderId) {
+        const next = new Set(expandedFolders);
+        next.add(folderId);
+        expandedFolders = next;
+        console.log('Expanding parent folder after note creation:', folderId);
+      }
       notesStore.selectNote(note);
       justCreatedNote = true;
       if (isMobile) activeMobilePane = 'editor';
@@ -513,6 +770,16 @@
     }
   });
 
+  // Auto-select folder name when EDITING an existing folder
+  $effect(() => {
+    if (editingFolderId && !justCreatedFolder && folderInput && settingsStore?.autoSelectFolderNameOnEdit) {
+      setTimeout(() => {
+        folderInput?.focus();
+        folderInput?.select();
+      }, 0);
+    }
+  });
+
   function handleTitleKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' && editorElement) {
       e.preventDefault();
@@ -521,16 +788,55 @@
   }
 
   async function handleCreateFolder() {
-    if (!foldersStore) return;
-    const parentId =
-      foldersStore.selectedFolder && foldersStore.selectedFolder !== 'uncategorised'
-        ? foldersStore.selectedFolder.id
-        : null;
+    console.log('handleCreateFolder called');
+    if (!foldersStore) {
+      alert('Folders store not initialized');
+      return;
+    }
+    
+    // Determine parent folder: priority to selectedFolder, fallback to lastSelectedFolderId
+    let parentId: string | null = null;
+    const selected = foldersStore.selectedFolder;
+    
+    if (selected && typeof selected !== 'string') {
+      parentId = selected.id;
+    } else if (lastSelectedFolderId) {
+      parentId = lastSelectedFolderId;
+    }
+
+    // If we explicitly have no selection, ensure parentId is null for top-level
+    if (selectedFolderIds.size === 0 && !selected) {
+      parentId = null;
+    }
+    
+    console.log('Creating folder with parentId:', parentId);
     const folder = await foldersStore.createFolder(parentId);
     if (folder) {
+      if (parentId) {
+        const next = new Set(expandedFolders);
+        next.add(parentId);
+        expandedFolders = next;
+        console.log('Expanding parent folder after folder creation:', parentId);
+      }
       editingFolderId = folder.id;
       editingFolderName = folder.name;
       justCreatedFolder = true;
+    } else {
+      alert('Failed to create folder - see console');
+    }
+  }
+
+  function handleSidebarBackgroundClick(e: MouseEvent) {
+    // Only trigger if clicking the actual background, not a child
+    if (e.target === e.currentTarget) {
+      console.log('Sidebar background clicked - clearing selections');
+      selectedFolderIds = new Set();
+      lastSelectedFolderId = null;
+      selectedNoteIds = new Set();
+      lastSelectedNoteId = null;
+      foldersStore.selectedFolder = null;
+      foldersStore.selectFolder(null);
+      notesStore.loadNotes();
     }
   }
 
@@ -564,20 +870,20 @@
     return roots;
   }
 
-  function flattenFolderTree(nodes: FolderNode[], depth = 0, acc: FolderListItem[] = []) {
+  function flattenFolderTree(nodes: FolderNode[], expanded: Set<string>, depth = 0, acc: FolderListItem[] = []) {
     for (const node of nodes) {
       acc.push({ folder: node, depth });
-      if (node.children.length) {
-        flattenFolderTree(node.children, depth + 1, acc);
+      if (node.children.length && expanded.has(node.id)) {
+        flattenFolderTree(node.children, expanded, depth + 1, acc);
       }
     }
     return acc;
   }
 
-  let flatFolders = $state<FolderListItem[]>([]);
-  $effect(() => {
-    const allFolders = foldersStore?.folders ?? [];
-    flatFolders = flattenFolderTree(buildFolderTree(allFolders));
+  const flatFolders = $derived.by(() => {
+    const folders = foldersStore?.folders || [];
+    const expanded = expandedFolders;
+    return flattenFolderTree(buildFolderTree(folders), expanded);
   });
 
   function handleEditFolder(folder: Folder) {
@@ -603,47 +909,271 @@
 
   async function handleDeleteFolder(folderId: string) {
     if (!foldersStore || !notesStore) return;
+    
+    // If the clicked folder is part of a selection, delete the entire selection
+    if (selectedFolderIds.size > 0 && selectedFolderIds.has(folderId)) {
+        handleDeleteFolders();
+        return;
+    }
+
     folderToDelete = folderId;
-    showDeleteFolderConfirm = true;
+    if (settingsStore?.confirmFolderDelete) {
+        showDeleteFolderConfirm = true;
+    } else {
+        confirmDeleteFolder();
+    }
   }
 
   async function confirmDeleteFolder() {
-    if (!foldersStore || !notesStore || !folderToDelete) return;
+    if (!foldersStore || !notesStore) return;
     
-    // Delete all notes in this folder first
-    const notesToDelete = notesStore.notes.filter((note: Note) => note.folder_id === folderToDelete);
-    for (const note of notesToDelete) {
-      await notesStore.deleteNote(note.id);
+    if (dontAskAgain && settingsStore) {
+      settingsStore.confirmFolderDelete = false;
     }
     
-    await foldersStore.deleteFolder(folderToDelete);
-    if (foldersStore.selectedFolder?.id === folderToDelete) {
-      // Reload all notes if we deleted the currently selected folder
-      await notesStore.loadNotes();
+    // Determine the next folder to select after deletion
+    let nextFolderToSelect: Folder | null = null;
+    
+    if (selectedFolderIds.size > 0) {
+        const sortedIds = flatFolders.filter(f => selectedFolderIds.has(f.folder.id)).map(f => f.folder.id);
+        const lastDeletedId = sortedIds[sortedIds.length - 1];
+        const lastIdx = flatFolders.findIndex(f => f.folder.id === lastDeletedId);
+        
+        if (lastIdx < flatFolders.length - 1) {
+            nextFolderToSelect = flatFolders[lastIdx + 1].folder;
+        } else if (lastIdx > 0) {
+            // Find first preceding non-deleted folder
+            for (let i = lastIdx - 1; i >= 0; i--) {
+                if (!selectedFolderIds.has(flatFolders[i].folder.id)) {
+                    nextFolderToSelect = flatFolders[i].folder;
+                    break;
+                }
+            }
+        }
+
+        for (const id of selectedFolderIds) {
+            await foldersStore.deleteFolder(id);
+        }
+        selectedFolderIds = new Set();
+    } else if (folderToDelete) {
+        const idx = flatFolders.findIndex(f => f.folder.id === folderToDelete);
+        if (idx < flatFolders.length - 1) {
+            nextFolderToSelect = flatFolders[idx + 1].folder;
+        } else if (idx > 0) {
+            nextFolderToSelect = flatFolders[idx - 1].folder;
+        }
+        
+        await foldersStore.deleteFolder(folderToDelete);
     }
+    
+    // Reload and update selection
+    await foldersStore.loadFolders();
+    await notesStore.loadNotes();
+    
+    if (nextFolderToSelect) {
+        handleSelectFolder(nextFolderToSelect);
+    } else {
+        handleSelectFolder(null); // Fallback to "All Notes"
+    }
+    
     showDeleteFolderConfirm = false;
     folderToDelete = null;
+    dontAskAgain = false;
   }
 
   function cancelDeleteFolder() {
     showDeleteFolderConfirm = false;
     folderToDelete = null;
+    dontAskAgain = false;
   }
 
-  function handleSelectFolder(folder: Folder | null | 'uncategorised') {
+  function handleSelectFolder(folder: Folder | null | 'uncategorised', event?: MouseEvent) {
+    console.log('handleSelectFolder called:', { folder, event, ctrlKey: event?.ctrlKey, shiftKey: event?.shiftKey, metaKey: event?.metaKey });
     if (!foldersStore || !notesStore) return;
+
+    // Deselect notes when a folder is clicked
+    selectedNoteIds = new Set();
+    lastSelectedNoteId = null;
+    if (!event?.ctrlKey && !event?.metaKey && !event?.shiftKey) {
+        notesStore.selectNote(null);
+    }
+
+    // Handle "All Notes" (null) click - clear selection
+    if (folder === null) {
+      console.log('Clearing selection - All Notes clicked');
+      selectedFolderIds = new Set();
+      lastSelectedFolderId = null;
+      selectedNoteIds = new Set();
+      lastSelectedNoteId = null;
+      foldersStore.selectFolder(null);
+      notesStore.selectNote(null);
+      notesStore.loadNotes();
+      if (isMobile) activeMobilePane = 'notes';
+      return;
+    }
+
+    // Handle "Uncategorised" click - clear selection
     if (folder === 'uncategorised') {
+      selectedFolderIds = new Set();
+      lastSelectedFolderId = null;
+      selectedNoteIds = new Set();
+      lastSelectedNoteId = null;
       foldersStore.selectedFolder = 'uncategorised';
       notesStore.selectNote(null);
-      // Load notes without a folder
-      notesStore.loadNotes(null, true); // true = only uncategorised
-    } else {
-      foldersStore.selectFolder(folder);
-      notesStore.selectNote(null);
-      // Reload notes filtered by the selected folder
-      notesStore.loadNotes(folder?.id);
+      notesStore.loadNotes(undefined, true);
+      if (isMobile) activeMobilePane = 'notes';
+      return;
     }
+
+    // Handle regular folder clicks
+    const id = folder.id;
+    console.log('Regular folder click, id:', id, 'current selectedFolderIds:', [...selectedFolderIds]);
+
+    // Toggle Selection (Ctrl/Cmd+Click)
+    if (event?.ctrlKey || event?.metaKey) {
+      console.log('Ctrl/Cmd+Click detected!');
+      const newSet = new Set(selectedFolderIds);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+        console.log('Removing from selection');
+      } else {
+        newSet.add(id);
+        console.log('Adding to selection');
+      }
+      selectedFolderIds = newSet;
+      console.log('New selectedFolderIds:', [...newSet]);
+      lastSelectedFolderId = id;
+      
+      // In single sidebar mode, just return after multi-select
+      if (settingsStore?.singleSidebarMode) {
+        return;
+      }
+      // In regular mode, also select the folder for the notes panel if it's the only one
+      if (newSet.size === 1) {
+        const selectedId = [...newSet][0];
+        const selectedFolder = foldersStore.folders.find((f: Folder) => f.id === selectedId);
+        if (selectedFolder) {
+          foldersStore.selectFolder(selectedFolder);
+          notesStore.selectNote(null);
+          notesStore.loadNotes(selectedFolder.id);
+        }
+      }
+      return;
+    }
+
+    // Range Selection (Shift+Click)
+    if (event?.shiftKey && flatFolders.length > 0) {
+      // If no previous selection, treat as first selection
+      const anchorId = lastSelectedFolderId || id;
+      const clickedIndex = flatFolders.findIndex(f => f.folder.id === id);
+      const lastIndex = flatFolders.findIndex(f => f.folder.id === anchorId);
+      
+      if (clickedIndex !== -1 && lastIndex !== -1) {
+        const start = Math.min(clickedIndex, lastIndex);
+        const end = Math.max(clickedIndex, lastIndex);
+        
+        // Start fresh selection for the range
+        const newSet = new Set<string>();
+        for (let i = start; i <= end; i++) {
+          newSet.add(flatFolders[i].folder.id);
+        }
+        selectedFolderIds = newSet;
+        // Don't update lastSelectedFolderId to keep the anchor for subsequent shift-clicks
+        
+        // In single sidebar mode, just return after range select
+        if (settingsStore?.singleSidebarMode) {
+          return;
+        }
+        // In regular mode, select the clicked folder for the notes panel
+        foldersStore.selectFolder(folder);
+        notesStore.selectNote(null);
+        notesStore.loadNotes(folder.id);
+        return;
+      }
+    }
+
+    // Standard click behavior
+    selectedFolderIds = new Set([id]);
+    lastSelectedFolderId = id;
+
+    if (settingsStore?.singleSidebarMode) {
+      return; 
+    }
+
+    // Regular two-panel mode
+    foldersStore.selectFolder(folder);
+    notesStore.selectNote(null);
+    notesStore.loadNotes(folder.id);
     if (isMobile) activeMobilePane = 'notes';
+  }
+
+  function handleSelectNote(note: Note, event?: MouseEvent) {
+    if (!notesStore) return;
+    
+    console.log('handleSelectNote called:', { note: note.id, ctrlKey: event?.ctrlKey, shiftKey: event?.shiftKey, metaKey: event?.metaKey });
+
+    // Clear folder selection when selecting notes
+    selectedFolderIds = new Set();
+    
+    const id = note.id;
+    const visibleNotes = notesStore.notes.filter((n: Note) => !n.is_deleted);
+
+    // Toggle Selection (Ctrl/Cmd+Click)
+    if (event?.ctrlKey || event?.metaKey) {
+      console.log('Ctrl/Cmd+Click on note detected!');
+      const newSet = new Set(selectedNoteIds);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+        console.log('Removing note from selection');
+      } else {
+        newSet.add(id);
+        console.log('Adding note to selection');
+      }
+      selectedNoteIds = newSet;
+      console.log('New selectedNoteIds:', [...newSet]);
+      lastSelectedNoteId = id;
+      
+      // If only one note selected, also select it for editing
+      if (newSet.size === 1) {
+        const selectedId = [...newSet][0];
+        const selectedNote = notesStore.notes.find((n: Note) => n.id === selectedId);
+        if (selectedNote) {
+          notesStore.selectNote(selectedNote);
+        }
+      }
+      return;
+    }
+
+    // Range Selection (Shift+Click)
+    if (event?.shiftKey && visibleNotes.length > 0) {
+      console.log('Shift+Click on note detected!');
+      const anchorId = lastSelectedNoteId || id;
+      const clickedIndex = visibleNotes.findIndex((n: Note) => n.id === id);
+      const lastIndex = visibleNotes.findIndex((n: Note) => n.id === anchorId);
+      
+      if (clickedIndex !== -1 && lastIndex !== -1) {
+        const start = Math.min(clickedIndex, lastIndex);
+        const end = Math.max(clickedIndex, lastIndex);
+        
+        const newSet = new Set<string>();
+        for (let i = start; i <= end; i++) {
+          newSet.add(visibleNotes[i].id);
+        }
+        selectedNoteIds = newSet;
+        console.log('Range selected notes:', [...newSet]);
+        
+        // Also select the clicked note for editing
+        notesStore.selectNote(note);
+        return;
+      }
+    }
+
+    // Standard click - clear multi-selection and select single note
+    console.log('Standard click on note - selecting single');
+    selectedNoteIds = new Set([id]);
+    lastSelectedNoteId = id;
+    notesStore.selectNote(note);
+    if (isMobile) activeMobilePane = 'editor';
   }
 
   function handleContentChange(value: string) {
@@ -689,14 +1219,27 @@
 
   async function handleDeleteNote() {
     if (!notesStore || !foldersStore) return;
+    
+    // If we have a multi-selection, delete that first
+    if (selectedNoteIds.size > 0) {
+        handleDeleteSelectedNotes();
+        return;
+    }
+
     if (notesStore.selectedNote) {
       handleDeleteNoteClick(notesStore.selectedNote);
     }
   }
 
   function handleDeleteNoteClick(note: Note) {
+    // If the clicked note is part of a selection, delete the entire selection
+    if (selectedNoteIds.size > 0 && selectedNoteIds.has(note.id)) {
+        handleDeleteSelectedNotes();
+        return;
+    }
+
     noteToDelete = note;
-    if (settingsStore?.confirmBeforeDelete) {
+    if (settingsStore?.confirmNoteDelete) {
       showDeleteConfirm = true;
     } else {
       confirmDeleteNote();
@@ -704,16 +1247,51 @@
   }
 
   async function confirmDeleteNote() {
-    if (!noteToDelete || !notesStore) return;
+    if (!notesStore) return;
     
     if (dontAskAgain && settingsStore) {
-      settingsStore.confirmBeforeDelete = false;
+      settingsStore.confirmNoteDelete = false;
     }
     
-    await notesStore.deleteNote(noteToDelete.id);
-    if (notesStore.selectedNote?.id === noteToDelete.id) {
-      notesStore.selectNote(null);
+    // Determine the next note to select after deletion
+    let nextNoteToSelect: Note | null = null;
+    const visibleNotes = notesStore.notes.filter((n: Note) => !n.is_deleted);
+    
+    if (selectedNoteIds.size > 0) {
+        const sortedIds = visibleNotes.filter(n => selectedNoteIds.has(n.id)).map(n => n.id);
+        const lastDeletedId = sortedIds[sortedIds.length - 1];
+        const lastIdx = visibleNotes.findIndex(n => n.id === lastDeletedId);
+        
+        if (lastIdx < visibleNotes.length - 1) {
+            nextNoteToSelect = visibleNotes[lastIdx + 1];
+        } else if (lastIdx > 0 && !selectedNoteIds.has(visibleNotes[lastIdx - 1].id)) {
+            nextNoteToSelect = visibleNotes[lastIdx - 1];
+        }
+
+        for (const id of selectedNoteIds) {
+            await notesStore.deleteNote(id);
+        }
+        selectedNoteIds = new Set();
+    } else if (noteToDelete) {
+        const idx = visibleNotes.findIndex(n => n.id === noteToDelete.id);
+        if (idx < visibleNotes.length - 1) {
+            nextNoteToSelect = visibleNotes[idx + 1];
+        } else if (idx > 0) {
+            nextNoteToSelect = visibleNotes[idx - 1];
+        }
+        
+        await notesStore.deleteNote(noteToDelete.id);
     }
+    
+    // Always clear selection before selecting next
+    notesStore.selectNote(null);
+    if (nextNoteToSelect) {
+        notesStore.selectNote(nextNoteToSelect);
+        // Also update the selection sets if needed
+        selectedNoteIds = new Set([nextNoteToSelect.id]);
+        lastSelectedNoteId = nextNoteToSelect.id;
+    }
+    
     showDeleteConfirm = false;
     noteToDelete = null;
     dontAskAgain = false;
@@ -765,15 +1343,46 @@
     dragOverFolder = null;
   }
 
+  function handleFolderDragStart(event: DragEvent, folder: Folder) {
+    if (settingsStore?.singleSidebarMode && !selectedFolderIds.has(folder.id)) {
+        if (event.ctrlKey || event.metaKey) {
+             const newSet = new Set(selectedFolderIds);
+             newSet.add(folder.id);
+             selectedFolderIds = newSet;
+             lastSelectedFolderId = folder.id; 
+        } else {
+            selectedFolderIds = new Set([folder.id]);
+            lastSelectedFolderId = folder.id;
+        }
+    }
+    draggedFolder = folder;
+    event.dataTransfer!.effectAllowed = 'move';
+    event.dataTransfer!.setData('text/plain', folder.id);
+  }
+
+  function handleFolderDragEnd() {
+    draggedFolder = null;
+    dragOverFolder = null;
+  }
+
   function handleFolderDragOver(event: DragEvent, folderId: string | null) {
-    // Only handle if we're dragging a note, not an external file
-    if (!draggedNote) return;
+    // Handle both note and folder dragging
+    if (!draggedNote && !draggedFolder) return;
     
+    // Prevent dragging a folder into itself or its children
+    if (draggedFolder && folderId) {
+       if (draggedFolder.id === folderId) return;
+       // Check if folderId is a child of draggedFolder (prevent cycles)
+       // We can check this by traversing up from folderId in the store
+       // implementation detail: for now just basic self-check
+    }
+
+    event.stopPropagation();
     event.preventDefault();
     if (event.dataTransfer) {
       event.dataTransfer.dropEffect = 'move';
     }
-    dragOverFolder = folderId || 'all-notes';
+    dragOverFolder = folderId || 'root';
   }
 
   function handleFolderDragLeave(event: DragEvent) {
@@ -786,28 +1395,506 @@
   }
 
   async function handleFolderDrop(event: DragEvent, folderId: string | null) {
-    // Only handle if we're dragging a note, not an external file
-    if (!draggedNote) return;
-    
+    event.stopPropagation();
     event.preventDefault();
     dragOverFolder = null;
-    
-    if (!notesStore) return;
-    
-    // Update the note's folder
-    await notesStore.moveNote(draggedNote.id, folderId);
-    
-    // Reload notes for current view
-    const selected = foldersStore?.selectedFolder;
-    if (selected === 'uncategorised') {
-      await notesStore.loadNotes(undefined, true);
-    } else if (selected && typeof selected !== 'string') {
-      await notesStore.loadNotes(selected.id);
-    } else {
-      await notesStore.loadNotes();
+
+    if (!notesStore || !foldersStore) return;
+
+    if (draggedNote) {
+        // Check if we're dragging multiple selected notes
+        if (selectedNoteIds.size > 0 && selectedNoteIds.has(draggedNote.id)) {
+            // Multi-move: move all selected notes
+            const promises = [];
+            for (const noteId of selectedNoteIds) {
+                promises.push(notesStore.moveNote(noteId, folderId));
+            }
+            await Promise.all(promises);
+            selectedNoteIds = new Set();
+        } else {
+            // Single move
+            await notesStore.moveNote(draggedNote.id, folderId);
+        }
+        
+        // Reload notes for current view if needed
+        const selected = foldersStore.selectedFolder;
+        if (selected === 'uncategorised') {
+          await notesStore.loadNotes(undefined, true);
+        } else if (selected && typeof selected !== 'string') {
+          await notesStore.loadNotes(selected.id);
+        } else {
+          await notesStore.loadNotes();
+        }
+        draggedNote = null;
+    } else if (draggedFolder) {
+        // Update the folder's parent
+        if (folderId === draggedFolder.id) return; // Can't drop on self
+
+        if (selectedFolderIds.size > 0 && selectedFolderIds.has(draggedFolder.id)) {
+             // Multi move
+             const promises = [];
+             for(const id of selectedFolderIds) {
+                 if (id === folderId) continue;
+                 const draggedItem = flatFolders.find(f => f.folder.id === id);
+                 if (draggedItem) {
+                      promises.push(foldersStore.updateFolder({
+                         ...draggedItem.folder,
+                         parent_id: folderId
+                      }));
+                 }
+             }
+             await Promise.all(promises);
+             selectedFolderIds.clear();
+        } else {
+             // Single move
+            await foldersStore.updateFolder({
+                ...draggedFolder,
+                parent_id: folderId
+            });
+        }
+        
+        draggedFolder = null;
     }
+  }
+
+  async function handleExportPdf() {
+    if (!notesStore?.selectedNote) return;
+    showEditorMenu = false;
+    exportStatus = 'Initializing export...';
     
-    draggedNote = null;
+    const isTauri = typeof window !== 'undefined' && (window as any).__TAURI__;
+
+    if (isTauri) {
+      try {
+        const { save } = await import('@tauri-apps/plugin-dialog');
+        const { writeFile } = await import('@tauri-apps/plugin-fs');
+        const { jsPDF } = await import('jspdf');
+
+        const lastSaveDir = localStorage.getItem('beck_last_save_dir') || '';
+        const fileName = `${notesStore.selectedNote.title || 'Untitled'}.pdf`;
+        
+        let defaultPath = fileName;
+        if (lastSaveDir) {
+          const sep = lastSaveDir.includes('\\') ? '\\' : '/';
+          defaultPath = `${lastSaveDir}${sep}${fileName}`;
+        }
+
+        const path = await save({
+          filters: [{ name: 'PDF', extensions: ['pdf'] }],
+          defaultPath
+        });
+
+        if (!path) {
+          exportStatus = '';
+          return;
+        }
+
+        const lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        if (lastSlash !== -1) {
+          localStorage.setItem('beck_last_save_dir', path.substring(0, lastSlash));
+        }
+
+        exportStatus = 'Capturing note content...';
+        
+        const title = notesStore.selectedNote.title || 'Untitled';
+        const editorDom = document.querySelector('.collaborative-editor .tiptap');
+        const htmlContent = (notesStore.selectedNote.content || '').trim() || (editorDom?.innerHTML || '');
+        
+        if (!htmlContent.trim()) {
+          throw new Error('Note is empty or failed to load content for export.');
+        }
+
+        exportStatus = 'Rendering PDF...';
+
+        // Create PDF with text-based rendering (more reliable in Tauri)
+        const doc = new jsPDF({
+          orientation: 'portrait',
+          unit: 'mm',
+          format: 'a4'
+        });
+
+        const pageWidth = 210;
+        const pageHeight = 297;
+        const margin = 20;
+        const contentWidth = pageWidth - (margin * 2);
+        let yPos = margin;
+
+        // Helper to add new page if needed
+        const checkPageBreak = (height: number) => {
+          if (yPos + height > pageHeight - margin) {
+            doc.addPage();
+            yPos = margin;
+          }
+        };
+
+        // Add title
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(24);
+        const titleLines = doc.splitTextToSize(title, contentWidth);
+        checkPageBreak(titleLines.length * 10);
+        doc.text(titleLines, margin, yPos);
+        yPos += titleLines.length * 10 + 5;
+
+        // Add separator line
+        doc.setDrawColor(0);
+        doc.setLineWidth(0.5);
+        doc.line(margin, yPos, pageWidth - margin, yPos);
+        yPos += 10;
+
+        // Parse HTML and render as formatted text
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = htmlContent;
+
+        // Helper to convert image to base64
+        const imageToBase64 = async (imgSrc: string): Promise<{data: string, format: string} | null> => {
+          try {
+            // Handle Tauri asset:// protocol by reading from the actual DOM if needed
+            if (imgSrc.startsWith('asset://') || imgSrc.startsWith('tauri://') || imgSrc.startsWith('file://')) {
+              // Try to find the original image in the editor DOM and use canvas to get base64
+              const editorImg = editorDom?.querySelector(`img[src="${imgSrc}"]`) as HTMLImageElement;
+              if (editorImg && editorImg.complete && editorImg.naturalWidth > 0) {
+                const canvas = document.createElement('canvas');
+                canvas.width = editorImg.naturalWidth;
+                canvas.height = editorImg.naturalHeight;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                  ctx.drawImage(editorImg, 0, 0);
+                  const base64 = canvas.toDataURL('image/png');
+                  return { data: base64, format: 'PNG' };
+                }
+              }
+              return null;
+            }
+            
+            // Handle http/https and data URLs
+            if (imgSrc.startsWith('data:')) {
+              const match = imgSrc.match(/^data:image\/(png|jpeg|jpg|gif|webp);base64,/);
+              const format = match ? (match[1] === 'jpg' ? 'JPEG' : match[1].toUpperCase()) : 'PNG';
+              return { data: imgSrc, format };
+            }
+            
+            const response = await fetch(imgSrc);
+            const blob = await response.blob();
+            const base64 = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.readAsDataURL(blob);
+            });
+            // Extract format from data URL (e.g., "data:image/png;base64,...")
+            const match = base64.match(/^data:image\/(png|jpeg|jpg|gif|webp);base64,/);
+            const format = match ? (match[1] === 'jpg' ? 'JPEG' : match[1].toUpperCase()) : 'PNG';
+            return { data: base64, format };
+          } catch (e) {
+            console.warn('Failed to load image:', imgSrc, e);
+            return null;
+          }
+        };
+
+        // Also try to get images directly from the live DOM using canvas
+        const getImageFromDOM = (src: string): {data: string, format: string, width: number, height: number} | null => {
+          try {
+            const liveImg = editorDom?.querySelector(`img[src="${src}"]`) as HTMLImageElement;
+            if (!liveImg) {
+              // Try finding by partial src match
+              const allImgs = editorDom?.querySelectorAll('img') || [];
+              for (const img of Array.from(allImgs)) {
+                if ((img as HTMLImageElement).src === src || src.includes((img as HTMLImageElement).src) || (img as HTMLImageElement).src.includes(src)) {
+                  if ((img as HTMLImageElement).complete && (img as HTMLImageElement).naturalWidth > 0) {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = (img as HTMLImageElement).naturalWidth;
+                    canvas.height = (img as HTMLImageElement).naturalHeight;
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                      ctx.drawImage(img as HTMLImageElement, 0, 0);
+                      return { 
+                        data: canvas.toDataURL('image/png'), 
+                        format: 'PNG',
+                        width: (img as HTMLImageElement).naturalWidth,
+                        height: (img as HTMLImageElement).naturalHeight
+                      };
+                    }
+                  }
+                }
+              }
+              return null;
+            }
+            if (liveImg.complete && liveImg.naturalWidth > 0) {
+              const canvas = document.createElement('canvas');
+              canvas.width = liveImg.naturalWidth;
+              canvas.height = liveImg.naturalHeight;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.drawImage(liveImg, 0, 0);
+                return { 
+                  data: canvas.toDataURL('image/png'), 
+                  format: 'PNG',
+                  width: liveImg.naturalWidth,
+                  height: liveImg.naturalHeight
+                };
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to get image from DOM:', e);
+          }
+          return null;
+        };
+
+        // Collect all images - use src as key for matching
+        const imageDataMap = new Map<string, {data: string, format: string, width: number, height: number}>();
+        const imgElements = tempDiv.querySelectorAll('img');
+        
+        for (const img of Array.from(imgElements)) {
+          const src = img.getAttribute('src') || img.src;
+          if (src && !imageDataMap.has(src)) {
+            // First try getting from live DOM (works for asset://, tauri://, etc.)
+            const domImage = getImageFromDOM(src);
+            if (domImage) {
+              imageDataMap.set(src, domImage);
+            } else {
+              // Fallback to fetch
+              const fetchedImage = await imageToBase64(src);
+              if (fetchedImage) {
+                imageDataMap.set(src, { ...fetchedImage, width: 200, height: 150 });
+              }
+            }
+          }
+        }
+
+        const processNode = async (node: Node): Promise<void> => {
+          if (node.nodeType === Node.TEXT_NODE) {
+            const text = node.textContent?.trim();
+            if (text) {
+              doc.setFont('times', 'normal');
+              doc.setFontSize(12);
+              const lines = doc.splitTextToSize(text, contentWidth);
+              checkPageBreak(lines.length * 5);
+              doc.text(lines, margin, yPos);
+              yPos += lines.length * 5 + 2;
+            }
+          } else if (node.nodeType === Node.ELEMENT_NODE) {
+            const el = node as HTMLElement;
+            const tagName = el.tagName.toLowerCase();
+
+            // Check for KaTeX elements - render as formatted math text
+            if (el.classList.contains('katex') || el.classList.contains('math-node') || el.closest('.katex')) {
+              // Skip if this is a child of katex (already handled by parent)
+              if (el.closest('.katex') && !el.classList.contains('katex')) {
+                return;
+              }
+              // Try to get the LaTeX source from the annotation element
+              const annotation = el.querySelector('annotation[encoding="application/x-tex"]');
+              let mathText = annotation?.textContent || '';
+              if (!mathText) {
+                // Fallback: get visible text from .katex-html
+                const katexHtml = el.querySelector('.katex-html');
+                mathText = katexHtml?.textContent || el.textContent || '';
+              }
+              if (mathText.trim()) {
+                doc.setFont('courier', 'italic');
+                doc.setFontSize(11);
+                doc.setTextColor(80, 80, 80);
+                const mathLines = doc.splitTextToSize(`[Math: ${mathText.trim()}]`, contentWidth);
+                checkPageBreak(mathLines.length * 5);
+                doc.text(mathLines, margin, yPos);
+                yPos += mathLines.length * 5 + 3;
+                doc.setTextColor(0, 0, 0);
+              }
+              return;
+            }
+
+            switch (tagName) {
+              case 'h1':
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(20);
+                checkPageBreak(10);
+                yPos += 5;
+                const h1Lines = doc.splitTextToSize(el.textContent || '', contentWidth);
+                doc.text(h1Lines, margin, yPos);
+                yPos += h1Lines.length * 8 + 5;
+                break;
+              case 'h2':
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(16);
+                checkPageBreak(8);
+                yPos += 4;
+                const h2Lines = doc.splitTextToSize(el.textContent || '', contentWidth);
+                doc.text(h2Lines, margin, yPos);
+                yPos += h2Lines.length * 6 + 4;
+                break;
+              case 'h3':
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(14);
+                checkPageBreak(7);
+                yPos += 3;
+                const h3Lines = doc.splitTextToSize(el.textContent || '', contentWidth);
+                doc.text(h3Lines, margin, yPos);
+                yPos += h3Lines.length * 5.5 + 3;
+                break;
+              case 'p':
+                // Process paragraph children to handle inline elements properly
+                for (const child of Array.from(el.childNodes)) {
+                  await processNode(child);
+                }
+                yPos += 2; // Add paragraph spacing
+                break;
+              case 'ul':
+              case 'ol':
+                doc.setFont('times', 'normal');
+                doc.setFontSize(12);
+                let itemNum = 1;
+                for (const li of Array.from(el.querySelectorAll(':scope > li'))) {
+                  const bullet = tagName === 'ul' ? '•' : `${itemNum}.`;
+                  const liText = li.textContent?.trim() || '';
+                  const liLines = doc.splitTextToSize(liText, contentWidth - 10);
+                  checkPageBreak(liLines.length * 5);
+                  doc.text(bullet, margin, yPos);
+                  doc.text(liLines, margin + 8, yPos);
+                  yPos += liLines.length * 5 + 2;
+                  itemNum++;
+                }
+                yPos += 3;
+                break;
+              case 'blockquote':
+                doc.setFont('times', 'italic');
+                doc.setFontSize(11);
+                doc.setDrawColor(150);
+                doc.setLineWidth(0.3);
+                const bqText = el.textContent?.trim() || '';
+                const bqLines = doc.splitTextToSize(bqText, contentWidth - 15);
+                checkPageBreak(bqLines.length * 5 + 4);
+                doc.line(margin, yPos - 2, margin, yPos + bqLines.length * 5);
+                doc.text(bqLines, margin + 5, yPos);
+                yPos += bqLines.length * 5 + 5;
+                doc.setDrawColor(0);
+                break;
+              case 'pre':
+              case 'code':
+                doc.setFont('courier', 'normal');
+                doc.setFontSize(10);
+                doc.setFillColor(245, 245, 245);
+                const codeText = el.textContent?.trim() || '';
+                const codeLines = doc.splitTextToSize(codeText, contentWidth - 10);
+                checkPageBreak(codeLines.length * 4 + 8);
+                doc.rect(margin, yPos - 3, contentWidth, codeLines.length * 4 + 6, 'F');
+                doc.text(codeLines, margin + 3, yPos);
+                yPos += codeLines.length * 4 + 8;
+                break;
+              case 'strong':
+              case 'b':
+                doc.setFont('times', 'bold');
+                doc.setFontSize(12);
+                const boldText = el.textContent?.trim();
+                if (boldText) {
+                  const boldLines = doc.splitTextToSize(boldText, contentWidth);
+                  doc.text(boldLines, margin, yPos);
+                  yPos += boldLines.length * 5 + 2;
+                }
+                break;
+              case 'em':
+              case 'i':
+                doc.setFont('times', 'italic');
+                doc.setFontSize(12);
+                const italicText = el.textContent?.trim();
+                if (italicText) {
+                  const italicLines = doc.splitTextToSize(italicText, contentWidth);
+                  doc.text(italicLines, margin, yPos);
+                  yPos += italicLines.length * 5 + 2;
+                }
+                break;
+              case 'hr':
+                checkPageBreak(10);
+                yPos += 3;
+                doc.setDrawColor(180);
+                doc.setLineWidth(0.3);
+                doc.line(margin, yPos, pageWidth - margin, yPos);
+                yPos += 7;
+                doc.setDrawColor(0);
+                break;
+              case 'br':
+                yPos += 4;
+                break;
+              case 'img':
+                const imgSrc = (el as HTMLImageElement).getAttribute('src') || (el as HTMLImageElement).src;
+                const imgData = imageDataMap.get(imgSrc);
+                if (imgData) {
+                  try {
+                    // Calculate image dimensions (max width = contentWidth, maintain aspect ratio)
+                    const naturalWidth = imgData.width || 200;
+                    const naturalHeight = imgData.height || 150;
+                    const aspectRatio = naturalHeight / naturalWidth;
+                    
+                    let imgWidth = Math.min(contentWidth, 100); // Max 100mm wide
+                    let imgHeight = imgWidth * aspectRatio;
+                    
+                    // Limit height to avoid huge images
+                    if (imgHeight > 100) {
+                      imgHeight = 100;
+                      imgWidth = imgHeight / aspectRatio;
+                    }
+                    
+                    checkPageBreak(imgHeight + 5);
+                    doc.addImage(imgData.data, imgData.format, margin, yPos, imgWidth, imgHeight);
+                    yPos += imgHeight + 5;
+                  } catch (imgErr) {
+                    console.warn('Failed to add image to PDF:', imgErr);
+                    doc.setFont('times', 'italic');
+                    doc.setFontSize(10);
+                    doc.setTextColor(150);
+                    doc.text('[Image could not be rendered]', margin, yPos);
+                    doc.setTextColor(0);
+                    yPos += 5;
+                  }
+                } else {
+                  // Image not found - show placeholder
+                  doc.setFont('times', 'italic');
+                  doc.setFontSize(10);
+                  doc.setTextColor(150);
+                  doc.text('[Image]', margin, yPos);
+                  doc.setTextColor(0);
+                  yPos += 5;
+                }
+                break;
+              case 'span':
+                // Check for special span types
+                if (el.classList.contains('katex') || el.closest('.katex')) {
+                  // Already handled above
+                  return;
+                }
+                // Process children for regular spans
+                for (const child of Array.from(el.childNodes)) {
+                  await processNode(child);
+                }
+                break;
+              default:
+                // Process children for container elements like div
+                for (const child of Array.from(el.childNodes)) {
+                  await processNode(child);
+                }
+                break;
+            }
+          }
+        };
+
+        for (const node of Array.from(tempDiv.childNodes)) {
+          await processNode(node);
+        }
+
+        // Output as blob
+        const pdfBlob = doc.output('blob');
+        const uint8 = new Uint8Array(await pdfBlob.arrayBuffer());
+        await writeFile(path, uint8);
+        
+        exportedPath = path;
+        showExportSuccess = true;
+        exportStatus = '';
+      } catch (err) {
+        console.error('Failed to export PDF:', err);
+        exportStatus = '';
+        alert('Failed to export PDF: ' + (err instanceof Error ? err.message : String(err)));
+      }
+    } else {
+      window.print();
+    }
   }
 </script>
 
@@ -827,7 +1914,7 @@
         </div>
       {:else}
         <div class="inline-block w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p class="text-gray-600">Loading Sanity...</p>
+        <p class="text-gray-600">Loading Beck...</p>
         <p class="text-gray-400 text-sm mt-2">This should only take a moment</p>
       {/if}
     </div>
@@ -837,9 +1924,13 @@
   <!-- Left Sidebar (Folders) -->
   <aside 
     bind:this={leftSidebarElement} 
-    class="border-r border-gray-200 bg-white flex flex-col {isDraggingLeft ? '' : 'transition-all'} {leftSidebarCollapsed ? 'w-0 -ml-px' : ''} overflow-hidden" 
+    class="border-r border-gray-200 bg-white flex flex-col {isDraggingLeft ? '' : 'transition-all'} {leftSidebarCollapsed ? 'w-0 -ml-px' : ''} overflow-hidden {dragOverFolder === 'root' ? 'bg-indigo-50/50 ring-2 ring-indigo-400 ring-inset' : ''}" 
     style="width: {isMobile ? (activeMobilePane === 'folders' ? '100%' : '0px') : (leftSidebarCollapsed ? '0px' : leftSidebarWidth + 'px')}"
     class:hidden={isMobile && activeMobilePane !== 'folders'}
+    onclick={handleSidebarBackgroundClick}
+    ondragover={(e) => (settingsStore?.singleSidebarMode || draggedNote || draggedFolder) && handleFolderDragOver(e, null)}
+    ondragleave={(e) => handleFolderDragLeave(e)}
+    ondrop={(e) => (settingsStore?.singleSidebarMode || draggedFolder || draggedNote) && handleFolderDrop(e, null)}
   >
     <div class="p-4 border-b border-gray-200">
       <div class="flex items-center justify-between">
@@ -858,6 +1949,15 @@
         <div class="flex gap-2">
           <button
             class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            onclick={handleSearchOpen}
+            title="Search notes (Ctrl+K)"
+          >
+            <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </button>
+          <button
+            class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
             onclick={() => (showSettings = true)}
             title="Settings"
           >
@@ -873,23 +1973,30 @@
         </button>
         {#if !isMobile}
           <button
-              class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              onclick={() => (leftSidebarCollapsed = !leftSidebarCollapsed)}
-              title={leftSidebarCollapsed ? "Expand" : "Collapse"}
-            >
-              <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={leftSidebarCollapsed ? "M9 5l7 7-7 7" : "M15 19l-7-7 7-7"} />
-              </svg>
-            </button>
+            class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            onclick={() => (leftSidebarCollapsed = !leftSidebarCollapsed)}
+            title={leftSidebarCollapsed ? "Expand" : "Collapse"}
+          >
+            <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={leftSidebarCollapsed ? "M13 5l7 7-7 7M5 5l7 7-7 7" : "M11 19l-7-7 7-7M19 19l-7-7 7-7"} />
+            </svg>
+          </button>
         {/if}
       </div>
     </div>
    </div>
 
     <!-- Folders Section -->
-    <div class="flex-1 overflow-y-auto">
+    <div 
+      class="flex-1 overflow-y-auto"
+      onclick={handleSidebarBackgroundClick}
+      ondragover={(e) => settingsStore?.singleSidebarMode && handleFolderDragOver(e, null)}
+      ondragleave={(e) => settingsStore?.singleSidebarMode && handleFolderDragLeave(e)}
+      ondrop={(e) => settingsStore?.singleSidebarMode && handleFolderDrop(e, null)}
+      role="list"
+    >
       <div class="px-4 py-2 space-y-1">
-        {#if settingsStore?.showAllNotesFolder}
+        {#if settingsStore?.showAllNotesFolder && !settingsStore?.singleSidebarMode}
           <button 
             class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors {!foldersStore.selectedFolder && foldersStore.selectedFolder !== 'uncategorised' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700'} {dragOverFolder === 'all-notes' ? 'ring-2 ring-indigo-400 bg-indigo-50' : ''}"
             onclick={() => handleSelectFolder(null)}
@@ -905,7 +2012,7 @@
           </button>
         {/if}
         
-        {#if settingsStore?.showUncategorisedFolder}
+        {#if settingsStore?.showUncategorisedFolder && !settingsStore?.singleSidebarMode}
           <button 
             class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors {foldersStore.selectedFolder === 'uncategorised' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700'} {dragOverFolder === 'uncategorised' ? 'ring-2 ring-indigo-400 bg-indigo-50' : ''}"
             onclick={() => handleSelectFolder('uncategorised')}
@@ -930,8 +2037,57 @@
         <div class="text-center text-gray-500 py-4">
           <div class="inline-block w-6 h-6 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
         </div>
-      {:else if flatFolders.length > 0}
-        <div class="px-4 pb-4 space-y-1 transition-opacity duration-200" class:opacity-50={foldersStore.loading}>
+      {:else}
+        {#if flatFolders.length === 0 && (!settingsStore?.singleSidebarMode || notesStore?.notes?.filter((n: Note) => !n.folder_id && !n.is_deleted).length === 0)}
+          <div class="px-6 py-8 text-center">
+            <svg class="w-12 h-12 mx-auto text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+            </svg>
+            <p class="text-gray-500 text-sm">No folders yet</p>
+            <button class="text-indigo-600 text-xs font-medium mt-2 hover:underline" onclick={handleCreateFolder}>
+              Create your first folder
+            </button>
+          </div>
+        {:else}
+          <div class="px-4 pb-4 space-y-1 transition-opacity duration-200" class:opacity-50={foldersStore.loading}>
+            {#if settingsStore?.singleSidebarMode}
+                {#each notesStore.notes.filter((n: Note) => !n.folder_id && !n.is_deleted) as note}
+                    <div class="group relative">
+                        <div
+                            class="w-full text-left py-2 rounded-lg hover:bg-gray-100 transition-colors flex items-center justify-between cursor-pointer {selectedNoteIds.has(note.id) ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700'}"
+                            style="padding-left: 12px; padding-right: 12px;"
+                            onclick={(e) => handleSelectNote(note, e)}
+                            draggable="true"
+                            ondragstart={(e) => handleNoteDragStart(e, note)}
+                            ondragend={handleNoteDragEnd}
+                            role="button"
+                            tabindex="0"
+                        >
+                            <span class="flex items-center gap-2 min-w-0 pointer-events-none">
+                                <svg class="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                </svg>
+                                <span class="truncate text-sm">{note.title || 'Untitled Note'}</span>
+                            </span>
+                            
+                            <div class="flex gap-1 pointer-events-auto transition-opacity" class:opacity-0={!isMobile} class:group-hover:opacity-100={!isMobile}>
+                                <div
+                                  class="p-1 hover:bg-red-100 rounded text-red-600 cursor-pointer"
+                                  onclick={(e) => { e.stopPropagation(); handleDeleteNoteClick(note); }}
+                                  role="button"
+                                  tabindex="0"
+                                  title="Delete Note"
+                                >
+                                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                  </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {/each}
+            {/if}
+
           {#each flatFolders as item}
             {@const folder = item.folder}
             <div class="group relative">
@@ -944,14 +2100,19 @@
                     class="input flex-1 text-sm"
                     onkeydown={(e) => e.key === 'Enter' && handleSaveFolder()}
                     onblur={handleSaveFolder}
+                    onfocus={(e) => settingsStore?.autoSelectFolderNameOnEdit && e.currentTarget.select()}
                     autofocus
                   />
                 </div>
               {:else}
                 <div
-                  class="w-full text-left py-2 rounded-lg hover:bg-gray-100 transition-colors flex items-center justify-between cursor-pointer {foldersStore.selectedFolder?.id === folder.id ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700'} {dragOverFolder === folder.id ? 'ring-2 ring-indigo-400 bg-indigo-50' : ''}"
+                  class="w-full text-left py-2 rounded-lg hover:bg-gray-100 transition-colors flex items-center justify-between cursor-pointer {selectedFolderIds.has(folder.id) ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700'} {dragOverFolder === folder.id ? 'ring-2 ring-indigo-400 bg-indigo-50' : ''}"
                   style={`padding-left: ${12 + item.depth * 16}px; padding-right: 12px;`}
-                  onclick={() => handleSelectFolder(folder)}
+                  onclick={(e) => handleSelectFolder(folder, e)}
+                  ondblclick={(e) => { e.stopPropagation(); toggleFolder(folder.id); }}
+                  draggable="true"
+                  ondragstart={(e) => handleFolderDragStart(e, folder)}
+                  ondragend={handleFolderDragEnd}
                   ondragover={(e) => handleFolderDragOver(e, folder.id)}
                   ondragleave={(e) => handleFolderDragLeave(e)}
                   ondrop={(e) => handleFolderDrop(e, folder.id)}
@@ -960,7 +2121,16 @@
                   tabindex="0"
                 >
                   <span class="flex items-center pointer-events-none">
-                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <button 
+                      class="p-1 -ml-1 hover:bg-gray-200 rounded-md transition-all pointer-events-auto"
+                      onclick={(e) => { e.stopPropagation(); toggleFolder(folder.id); }}
+                      aria-label={expandedFolders.has(folder.id) ? 'Collapse' : 'Expand'}
+                    >
+                      <svg class="w-3 h-3 text-gray-400 transition-transform {expandedFolders.has(folder.id) ? 'rotate-90' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                    <svg class="w-4 h-4 mr-2 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
                     </svg>
                     <span class="truncate">{folder.name}</span>
@@ -989,23 +2159,68 @@
                   </div>
                 </div>
               {/if}
+            
+            {#if settingsStore?.singleSidebarMode && expandedFolders.has(folder.id)}
+                  <div 
+                      class="w-full"
+                      ondragover={(e) => handleFolderDragOver(e, folder.id)}
+                      ondrop={(e) => handleFolderDrop(e, folder.id)}
+                      role="group"
+                  >
+                 {#each notesStore.notes.filter((n: Note) => n.folder_id === folder.id && !n.is_deleted) as note}
+                   <div class="group relative">
+                        <div
+                            class="w-full text-left py-2 rounded-lg hover:bg-gray-100 transition-colors flex items-center justify-between cursor-pointer {selectedNoteIds.has(note.id) ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700'}"
+                            style={`padding-left: ${12 + (item.depth + 1) * 16}px; padding-right: 12px;`}
+                            onclick={(e) => handleSelectNote(note, e)}
+                            draggable="true"
+                            ondragstart={(e) => handleNoteDragStart(e, note)}
+                            ondragend={handleNoteDragEnd}
+                            role="button"
+                            tabindex="0"
+                        >
+                            <span class="flex items-center gap-2 min-w-0 pointer-events-none">
+                                <svg class="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                </svg>
+                                <span class="truncate text-sm">{note.title || 'Untitled Note'}</span>
+                            </span>
+                            
+                            <div class="flex gap-1 pointer-events-auto transition-opacity" class:opacity-0={!isMobile} class:group-hover:opacity-100={!isMobile}>
+                                <div
+                                  class="p-1 hover:bg-red-100 rounded text-red-600 cursor-pointer"
+                                  onclick={(e) => { e.stopPropagation(); handleDeleteNoteClick(note); }}
+                                  role="button"
+                                  tabindex="0"
+                                  title="Delete Note"
+                                >
+                                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                  </svg>
+                                </div>
+                            </div>
+                        </div>
+                   </div>
+                 {/each}
+                 </div>
+            {/if}
             </div>
           {/each}
         </div>
       {/if}
+    {/if}
     </div>
   </aside>
 
   <!-- Left Sidebar Expand Button (when collapsed) -->
   {#if leftSidebarCollapsed && !isMobile}
     <button
-      class="w-8 h-12 bg-white border border-gray-200 rounded-r-lg flex items-center justify-center hover:bg-indigo-50 transition-colors shadow-sm"
+      class="fixed left-0 top-14 w-6 h-10 bg-white/80 hover:bg-white border-y border-r border-gray-200 rounded-r-full flex items-center justify-center transition-all shadow-sm group z-[45]"
       onclick={() => (leftSidebarCollapsed = false)}
       title="Expand folders sidebar"
-      style="position: absolute; left: 0; top: 50%; transform: translateY(-50%); z-index: 10;"
     >
-      <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+      <svg class="w-4 h-4 text-gray-400 group-hover:text-indigo-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7" />
       </svg>
     </button>
   {/if}
@@ -1025,7 +2240,7 @@
     bind:this={rightSidebarElement} 
     class="border-r border-gray-200 bg-white flex flex-col {isDraggingRight ? '' : 'transition-all'} {rightSidebarCollapsed ? 'w-0 -mr-px' : ''} overflow-hidden" 
     style="width: {isMobile ? (activeMobilePane === 'notes' ? '100%' : '0px') : (rightSidebarCollapsed ? '0px' : rightSidebarWidth + 'px')}"
-    class:hidden={isMobile && activeMobilePane !== 'notes'}
+    class:hidden={(isMobile && activeMobilePane !== 'notes') || settingsStore?.singleSidebarMode}
   >
     <div class="p-4 border-b border-gray-200">
       <div class="flex items-center justify-between">
@@ -1082,11 +2297,8 @@
           {#each notesStore.notes as note}
             <div class="group relative">
               <button
-                class="w-full text-left p-4 rounded-lg border border-gray-200 hover:border-indigo-400 hover:bg-indigo-50 transition-all {notesStore.selectedNote?.id === note.id ? 'bg-indigo-50 border-indigo-400' : 'bg-white'} {draggedNote?.id === note.id ? 'opacity-50' : ''}"
-                onclick={() => {
-                  notesStore.selectNote(note);
-                  if (isMobile) activeMobilePane = 'editor';
-                }}
+                class="w-full text-left p-4 rounded-lg border border-gray-200 hover:border-indigo-400 hover:bg-indigo-50 transition-all {selectedNoteIds.has(note.id) ? 'bg-indigo-50 border-indigo-400' : 'bg-white'} {draggedNote?.id === note.id ? 'opacity-50' : ''}"
+                onclick={(e) => handleSelectNote(note, e)}
                 draggable="true"
                 ondragstart={(e) => handleNoteDragStart(e, note)}
                 ondragend={handleNoteDragEnd}
@@ -1163,21 +2375,20 @@
   </aside>
 
   <!-- Right Sidebar Expand Button (when collapsed) -->
-  {#if rightSidebarCollapsed && !isMobile}
+  {#if rightSidebarCollapsed && !isMobile && !settingsStore?.singleSidebarMode}
     <button
-      class="w-8 h-12 bg-white border border-gray-200 rounded-l-lg flex items-center justify-center hover:bg-indigo-50 transition-colors shadow-sm"
+      class="fixed right-0 top-14 w-6 h-10 bg-white/80 hover:bg-white border-y border-l border-gray-200 rounded-l-full flex items-center justify-center transition-all shadow-sm group z-[45]"
       onclick={() => (rightSidebarCollapsed = false)}
       title="Expand notes sidebar"
-      style="position: absolute; left: {leftSidebarCollapsed ? 0 : leftSidebarWidth + 1}px; top: 50%; transform: translateY(-50%); z-index: 10;"
     >
-      <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+      <svg class="w-4 h-4 text-gray-400 group-hover:text-indigo-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7" />
       </svg>
     </button>
   {/if}
 
   <!-- Right Sidebar Resize Handle -->
-  {#if !rightSidebarCollapsed && !isMobile}
+  {#if !rightSidebarCollapsed && !isMobile && !settingsStore?.singleSidebarMode}
     <div
       class="w-1 bg-gray-200 hover:bg-indigo-500 cursor-col-resize transition-colors {isDraggingRight ? 'bg-indigo-500' : ''}"
       onmousedown={handleRightResizeStart}
@@ -1215,6 +2426,41 @@
           bind:value={notesStore.selectedNote.title}
           onkeydown={handleTitleKeydown}
         />
+        <div class="relative">
+          <button
+            bind:this={editorMenuButton}
+            class="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500"
+            onclick={() => (showEditorMenu = !showEditorMenu)}
+            title="More options"
+          >
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+            </svg>
+          </button>
+          
+          {#if showEditorMenu}
+            <div bind:this={editorMenuContainer} class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 border border-gray-200">
+              <button
+                class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                onclick={handleExportPdf}
+              >
+                <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                Export PDF
+              </button>
+              <button
+                class="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                onclick={() => { showEditorMenu = false; handleDeleteNote(); }}
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                </svg>
+                Delete Note
+              </button>
+            </div>
+          {/if}
+        </div>
       </div>
 
       <div class="flex-1 overflow-hidden">
@@ -1279,6 +2525,120 @@
 </div>
 {/if}
 
+<!-- Search Modal -->
+{#if showSearch}
+  <div 
+    class="fixed inset-0 flex items-start justify-center z-50 pt-[10vh]" 
+    style="background-color: rgba(0, 0, 0, 0.4);" 
+    onmousedown={(e) => e.target === e.currentTarget && handleSearchClose()}
+    onkeydown={handleSearchKeydown}
+    role="dialog"
+    aria-modal="true"
+    aria-label="Search notes"
+    tabindex="-1"
+    transition:fade={{ duration: 150 }}
+  >
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-xl mx-4 overflow-hidden" transition:scale={{ duration: 150, start: 0.95 }}>
+      <!-- Search Input -->
+      <div class="p-4 border-b border-gray-200">
+        <div class="relative">
+          <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            bind:this={searchInput}
+            bind:value={searchQuery}
+            oninput={() => performSearch(searchQuery)}
+            type="text"
+            placeholder="Search notes..."
+            class="w-full pl-10 pr-10 py-3 text-lg border-0 focus:ring-0 focus:outline-none"
+            autofocus
+          />
+          {#if searchQuery}
+            <button 
+              class="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-100 rounded"
+              onclick={() => { searchQuery = ''; searchResults = []; searchInput?.focus(); }}
+              aria-label="Clear search"
+            >
+              <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          {/if}
+        </div>
+      </div>
+      
+      <!-- Search Results -->
+      <div class="max-h-[60vh] overflow-y-auto">
+        {#if searchQuery && searchResults.length === 0}
+          <div class="p-8 text-center text-gray-500">
+            <svg class="w-12 h-12 mx-auto text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p class="font-medium">No notes found</p>
+            <p class="text-sm mt-1">Try a different search term</p>
+          </div>
+        {:else if searchResults.length > 0}
+          <div class="py-2">
+            {#each searchResults as note}
+              {@const noteFolder = foldersStore?.folders?.find((f: Folder) => f.id === note.folder_id)}
+              <button
+                class="w-full text-left px-4 py-3 hover:bg-indigo-50 transition-colors border-b border-gray-100 last:border-b-0"
+                onclick={() => selectSearchResult(note)}
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <div class="flex-1 min-w-0">
+                    <h4 class="font-medium text-gray-900 truncate">{note.title || 'Untitled Note'}</h4>
+                    <p class="text-sm text-gray-500 mt-1 line-clamp-2">
+                      {note.content ? stripHtml(note.content).substring(0, 120) : 'No content'}
+                    </p>
+                  </div>
+                  <div class="flex-shrink-0 flex flex-col items-end gap-1">
+                    {#if noteFolder}
+                      <span class="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs rounded flex items-center gap-1">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+                        </svg>
+                        {noteFolder.name}
+                      </span>
+                    {/if}
+                    <span class="text-xs text-gray-400">
+                      {new Date(note.updated_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+              </button>
+            {/each}
+          </div>
+        {:else}
+          <div class="p-8 text-center text-gray-500">
+            <svg class="w-12 h-12 mx-auto text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <p class="font-medium">Search your notes</p>
+            <p class="text-sm mt-1">Start typing to find notes by title or content</p>
+          </div>
+        {/if}
+      </div>
+      
+      <!-- Footer -->
+      <div class="px-4 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between text-xs text-gray-500">
+        <span>
+          {#if searchResults.length > 0}
+            {searchResults.length} result{searchResults.length === 1 ? '' : 's'}
+          {:else}
+            Type to search
+          {/if}
+        </span>
+        <span class="flex items-center gap-2">
+          <kbd class="px-1.5 py-0.5 bg-gray-200 rounded text-gray-600">Esc</kbd>
+          <span>to close</span>
+        </span>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <SettingsModal bind:open={showSettings} settings={settingsStore} isTauri={isTauri} onSync={handleSyncNow} />
 
 <!-- Delete Confirmation Modal -->
@@ -1293,9 +2653,15 @@
             </svg>
           </div>
           <div>
-            <h3 class="text-lg font-semibold text-gray-900">Delete Note?</h3>
+            <h3 class="text-lg font-semibold text-gray-900">
+              {selectedNoteIds.size > 0 ? `Delete ${selectedNoteIds.size} Notes?` : 'Delete Note?'}
+            </h3>
             <p class="text-sm text-gray-500 mt-1">
-              Are you sure you want to delete "{noteToDelete?.title || 'Untitled Note'}"? This action cannot be undone.
+              {#if selectedNoteIds.size > 0}
+                Are you sure you want to delete {selectedNoteIds.size} selected notes? This action cannot be undone.
+              {:else}
+                Are you sure you want to delete "{noteToDelete?.title || 'Untitled Note'}"? This action cannot be undone.
+              {/if}
             </p>
           </div>
         </div>
@@ -1322,6 +2688,7 @@
           <button
             class="px-4 py-2 text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
             onclick={confirmDeleteNote}
+            autofocus
           >
             Delete
           </button>
@@ -1341,11 +2708,29 @@
             </svg>
           </div>
           <div>
-            <h3 class="text-lg font-semibold text-gray-900">Delete Folder?</h3>
+            <h3 class="text-lg font-semibold text-gray-900">
+              {selectedFolderIds.size > 0 ? `Delete ${selectedFolderIds.size} Folders?` : 'Delete Folder?'}
+            </h3>
             <p class="text-sm text-gray-500 mt-1">
-              Are you sure you want to delete "{foldersStore.folders.find((f: Folder) => f.id === folderToDelete)?.name || 'this folder'}"? All notes in this folder will also be deleted.
+              {#if selectedFolderIds.size > 0}
+                Are you sure you want to delete {selectedFolderIds.size} selected folders? All notes in these folders will also be deleted.
+              {:else}
+                Are you sure you want to delete "{foldersStore.folders.find((f: Folder) => f.id === folderToDelete)?.name || 'this folder'}"? All notes in this folder will also be deleted.
+              {/if}
             </p>
           </div>
+        </div>
+
+        <div class="flex items-center gap-2 mb-6 px-2">
+          <input
+            type="checkbox"
+            id="dont-ask-again-folder"
+            bind:checked={dontAskAgain}
+            class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+          />
+          <label for="dont-ask-again-folder" class="text-sm text-gray-700 cursor-pointer">
+            Don't ask me again
+          </label>
         </div>
 
         <div class="flex gap-3 justify-end">
@@ -1358,10 +2743,50 @@
           <button
             class="px-4 py-2 text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
             onclick={confirmDeleteFolder}
+            autofocus
           >
             Delete
           </button>
         </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Export Status Overlay -->
+{#if exportStatus}
+  <div class="fixed inset-0 flex items-center justify-center z-[70] bg-black/20 backdrop-blur-[1px]" transition:fade={{ duration: 150 }}>
+    <div class="bg-white rounded-xl shadow-2xl p-8 flex flex-col items-center gap-4 max-w-xs w-full">
+      <div class="inline-block w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+      <p class="text-lg font-medium text-gray-900">{exportStatus}</p>
+      <p class="text-sm text-gray-500 text-center">This may take a few seconds for long notes...</p>
+    </div>
+  </div>
+{/if}
+
+<!-- PDF Export Success Modal -->
+{#if showExportSuccess}
+  <div class="fixed inset-0 flex items-center justify-center z-[60]" style="background-color: rgba(0, 0, 0, 0.2);" transition:fade={{ duration: 200 }}>
+    <div class="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4 overflow-hidden" transition:scale={{ duration: 200, start: 0.95 }}>
+      <div class="bg-emerald-600 p-4 flex justify-center">
+        <div class="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center">
+          <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
+          </svg>
+        </div>
+      </div>
+      <div class="p-6 text-center">
+        <h3 class="text-xl font-bold text-gray-900 mb-2">Export Successful!</h3>
+        <p class="text-gray-600 mb-4">Your note has been saved as a PDF to:</p>
+        <div class="bg-gray-50 p-3 rounded border border-gray-200 text-xs font-mono text-gray-500 break-all mb-6">
+          {exportedPath}
+        </div>
+        <button
+          class="w-full py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors shadow-md"
+          onclick={() => (showExportSuccess = false)}
+        >
+          Great!
+        </button>
       </div>
     </div>
   </div>

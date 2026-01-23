@@ -1,4 +1,4 @@
-use rusqlite::{Connection, OptionalExtension, Result as SqliteResult, params};
+use rusqlite::{params, Connection, OptionalExtension, Result as SqliteResult};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -67,8 +67,8 @@ pub struct NoteInput {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CrdtState {
     pub note_id: String,
-    pub ydoc_state: Vec<u8>,      // Full Yjs document state
-    pub state_vector: Vec<u8>,   // State vector for sync
+    pub ydoc_state: Vec<u8>,   // Full Yjs document state
+    pub state_vector: Vec<u8>, // State vector for sync
     pub updated_at: String,
 }
 
@@ -179,12 +179,12 @@ fn ensure_crdt_schema(conn: &Connection) -> SqliteResult<()> {
         )",
         [],
     )?;
-    
+
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_crdt_states_updated_at ON crdt_states(updated_at DESC)",
         [],
     )?;
-    
+
     Ok(())
 }
 
@@ -209,7 +209,7 @@ impl Database {
         conn.execute_batch(
             "PRAGMA foreign_keys = ON;
              PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;"
+             PRAGMA synchronous = NORMAL;",
         )?;
 
         // Create the folders table
@@ -268,7 +268,7 @@ impl Database {
             "SELECT id, title, folder_id, updated_at, is_deleted, is_canvas
              FROM notes
              WHERE is_deleted = 0
-             ORDER BY updated_at DESC"
+             ORDER BY updated_at DESC",
         )?;
 
         let notes_iter = stmt.query_map([], |row| {
@@ -358,7 +358,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, title, content, folder_id, updated_at, is_deleted, is_canvas
              FROM notes
-             WHERE id = ?1 AND is_deleted = 0"
+             WHERE id = ?1 AND is_deleted = 0",
         )?;
 
         let mut rows = stmt.query(params![id])?;
@@ -392,7 +392,7 @@ impl Database {
                     "SELECT id, title, folder_id, updated_at, is_deleted, is_canvas
                      FROM notes
                      WHERE folder_id = ?1 AND is_deleted = 0
-                     ORDER BY updated_at DESC"
+                     ORDER BY updated_at DESC",
                 )?;
                 let rows = stmt.query_map(params![fid], row_to_note)?;
                 for row in rows {
@@ -404,7 +404,7 @@ impl Database {
                     "SELECT id, title, folder_id, updated_at, is_deleted, is_canvas
                      FROM notes
                      WHERE folder_id IS NULL AND is_deleted = 0
-                     ORDER BY updated_at DESC"
+                     ORDER BY updated_at DESC",
                 )?;
                 let rows = stmt.query_map([], row_to_note)?;
                 for row in rows {
@@ -504,20 +504,21 @@ impl Database {
             "SELECT id, name, parent_id, created_at, updated_at, is_deleted
              FROM folders
              WHERE is_deleted = 0
-             ORDER BY name"
+             ORDER BY name",
         )?;
 
-        let folders = stmt.query_map([], |row| {
-            Ok(Folder {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                parent_id: row.get(2)?,
-                created_at: row.get(3)?,
-                updated_at: row.get(4)?,
-                is_deleted: row.get::<_, i32>(5)? != 0,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
+        let folders = stmt
+            .query_map([], |row| {
+                Ok(Folder {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    parent_id: row.get(2)?,
+                    created_at: row.get(3)?,
+                    updated_at: row.get(4)?,
+                    is_deleted: row.get::<_, i32>(5)? != 0,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(folders)
     }
@@ -528,7 +529,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, name, parent_id, created_at, updated_at, is_deleted
              FROM folders
-             WHERE id = ?"
+             WHERE id = ?",
         )?;
 
         let mut rows = stmt.query(params![folder_id])?;
@@ -604,24 +605,39 @@ impl Database {
             UPDATE folders
             SET is_deleted = 1, updated_at = ?2
             WHERE id IN (SELECT id FROM descendants)",
-            params![folder_id, now],
+            params![folder_id, &now],
         )?;
+
+        // ALSO Soft-delete all notes in these folders
+        conn.execute(
+            "WITH RECURSIVE descendants(id) AS (
+                SELECT id FROM folders WHERE id = ?1
+                UNION ALL
+                SELECT f.id FROM folders f
+                JOIN descendants d ON f.parent_id = d.id
+            )
+            UPDATE notes
+            SET is_deleted = 1, updated_at = ?2
+            WHERE folder_id IN (SELECT id FROM descendants)",
+            params![folder_id, &now],
+        )?;
+
         Ok(())
     }
 
     /// Get all child folders of a parent folder
     pub fn get_folders_by_parent(&self, parent_id: Option<&str>) -> SqliteResult<Vec<Folder>> {
         let conn = self.conn.lock().unwrap();
-        
+
         let mut folders = Vec::new();
-        
+
         match parent_id {
             Some(pid) => {
                 let mut stmt = conn.prepare(
                     "SELECT id, name, parent_id, created_at, updated_at, is_deleted
                      FROM folders
                      WHERE parent_id = ? AND is_deleted = 0
-                     ORDER BY name"
+                     ORDER BY name",
                 )?;
                 let rows = stmt.query_map(params![pid], |row| {
                     Ok(Folder {
@@ -642,7 +658,7 @@ impl Database {
                     "SELECT id, name, parent_id, created_at, updated_at, is_deleted
                      FROM folders
                      WHERE parent_id IS NULL AND is_deleted = 0
-                     ORDER BY name"
+                     ORDER BY name",
                 )?;
                 let rows = stmt.query_map([], |row| {
                     Ok(Folder {
@@ -761,12 +777,7 @@ impl Database {
                 ydoc_state = excluded.ydoc_state,
                 state_vector = excluded.state_vector,
                 updated_at = excluded.updated_at",
-            params![
-                &input.note_id,
-                &input.ydoc_state,
-                &input.state_vector,
-                &now,
-            ],
+            params![&input.note_id, &input.ydoc_state, &input.state_vector, &now,],
         )?;
 
         Ok(CrdtState {
@@ -783,7 +794,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT note_id, ydoc_state, state_vector, updated_at
              FROM crdt_states
-             WHERE note_id = ?1"
+             WHERE note_id = ?1",
         )?;
 
         let mut rows = stmt.query(params![note_id])?;
@@ -806,18 +817,19 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT note_id, ydoc_state, state_vector, updated_at
              FROM crdt_states
-             ORDER BY updated_at DESC"
+             ORDER BY updated_at DESC",
         )?;
 
-        let states = stmt.query_map([], |row| {
-            Ok(CrdtState {
-                note_id: row.get(0)?,
-                ydoc_state: row.get(1)?,
-                state_vector: row.get(2)?,
-                updated_at: row.get(3)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
+        let states = stmt
+            .query_map([], |row| {
+                Ok(CrdtState {
+                    note_id: row.get(0)?,
+                    ydoc_state: row.get(1)?,
+                    state_vector: row.get(2)?,
+                    updated_at: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(states)
     }
@@ -829,7 +841,11 @@ impl Database {
         }
 
         let conn = self.conn.lock().unwrap();
-        let placeholders: Vec<String> = note_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+        let placeholders: Vec<String> = note_ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect();
         let query = format!(
             "SELECT note_id, ydoc_state, state_vector, updated_at
              FROM crdt_states
@@ -838,19 +854,21 @@ impl Database {
         );
 
         let mut stmt = conn.prepare(&query)?;
-        
+
         // Bind all parameters
-        let params: Vec<&dyn rusqlite::ToSql> = note_ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
-        
-        let states = stmt.query_map(params.as_slice(), |row| {
-            Ok(CrdtState {
-                note_id: row.get(0)?,
-                ydoc_state: row.get(1)?,
-                state_vector: row.get(2)?,
-                updated_at: row.get(3)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
+        let params: Vec<&dyn rusqlite::ToSql> =
+            note_ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+
+        let states = stmt
+            .query_map(params.as_slice(), |row| {
+                Ok(CrdtState {
+                    note_id: row.get(0)?,
+                    ydoc_state: row.get(1)?,
+                    state_vector: row.get(2)?,
+                    updated_at: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(states)
     }
@@ -866,7 +884,10 @@ impl Database {
     }
 
     /// Get CRDT states updated since a timestamp
-    pub fn get_crdt_states_updated_since(&self, since: Option<&str>) -> SqliteResult<Vec<CrdtState>> {
+    pub fn get_crdt_states_updated_since(
+        &self,
+        since: Option<&str>,
+    ) -> SqliteResult<Vec<CrdtState>> {
         let conn = self.conn.lock().unwrap();
         let mut states = Vec::new();
 
@@ -1008,7 +1029,10 @@ pub mod assets {
 
         // Return the local URI that Tauri can serve
         // Using asset: protocol for Tauri 2.0 compatibility
-        let uri = format!("asset://localhost/{}", file_path.to_string_lossy().replace('\\', "/"));
+        let uri = format!(
+            "asset://localhost/{}",
+            file_path.to_string_lossy().replace('\\', "/")
+        );
 
         Ok(AssetResult {
             id: asset_id,
@@ -1030,10 +1054,12 @@ pub mod assets {
         let filename = format!("{}.{}", asset_id, file_extension.trim_start_matches('.'));
         let file_path = assets_dir.join(&filename);
 
-        fs::write(&file_path, data)
-            .map_err(|e| format!("Failed to write asset file: {}", e))?;
+        fs::write(&file_path, data).map_err(|e| format!("Failed to write asset file: {}", e))?;
 
-        let uri = format!("asset://localhost/{}", file_path.to_string_lossy().replace('\\', "/"));
+        let uri = format!(
+            "asset://localhost/{}",
+            file_path.to_string_lossy().replace('\\', "/")
+        );
 
         Ok(AssetResult {
             id: asset_id,
@@ -1079,12 +1105,16 @@ pub mod assets {
             let path = entry.path();
 
             if path.is_file() {
-                let filename = path.file_stem()
+                let filename = path
+                    .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or_default()
                     .to_string();
 
-                let uri = format!("asset://localhost/{}", path.to_string_lossy().replace('\\', "/"));
+                let uri = format!(
+                    "asset://localhost/{}",
+                    path.to_string_lossy().replace('\\', "/")
+                );
 
                 assets.push(AssetResult {
                     id: filename,

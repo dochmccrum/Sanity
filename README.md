@@ -1,4 +1,4 @@
-# Sanity
+# Beck
 
 Normal notes for normal people. Folders, markdown, flawless cross-platform and sync support and very easy self-hosting.
 
