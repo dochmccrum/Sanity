@@ -2,6 +2,9 @@
 
 Normal notes for normal people. Folders, markdown, flawless cross-platform and sync support and very easy self-hosting.
 
+Website: [getbeck.app](https://getbeck.app)
+
+
 ## Features
 
 - 📝 **Rich Note Editing** - Markdown support with WYSIWYG editor
